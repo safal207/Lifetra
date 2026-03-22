@@ -98,17 +98,21 @@ Currently exposed in Python:
 
 ### Colab quickstart
 
-The most robust flow in Google Colab is to build a wheel with `maturin` and install that wheel with `pip`:
+In a fresh Google Colab runtime, install Rust first, then install `maturin`, build the wheel, and install it with `pip`:
 
 ```bash
 git clone https://github.com/safal207/Lifetra.git
 cd Lifetra
+curl https://sh.rustup.rs -sSf | sh -s -- -y
+source "$HOME/.cargo/env"
 python -m pip install --upgrade pip
 python -m pip install maturin
 cd bindings/lifetra-py
 python -m maturin build --release
 python -m pip install $(find ../../target/wheels -name "lifetra_py-*.whl" | head -n 1)
 ```
+
+If you run the setup in separate Colab cells, repeat `source "$HOME/.cargo/env"` in any later cell before invoking `maturin`.
 
 After installation, you can import the extension module directly in a Colab cell:
 
@@ -132,7 +136,7 @@ from lifetra_py import (
     transition_count,
 )
 
-trajectory = TrajectoryState("emerging", momentum=0.64, stability=0.51)
+trajectory = TrajectoryState("emerging", 0.64, 0.51)
 trajectory.add_transition(
     StateTransition("initialization", Timestamp(1_710_000_000), "concept takes coherent form")
 )
@@ -151,7 +155,7 @@ print(combined_score(synergy))
 print(is_productive(synergy, 0.70))
 ```
 
-A notebook-ready script version of this flow is available at `bindings/lifetra-py/examples/minimal_usage.py`.
+A notebook-ready script version of this flow is available at `bindings/lifetra-py/examples/minimal_usage.py`, and `bindings/lifetra-py/examples/smoke_test.py` provides a minimal validation script for CI and local wheel checks.
 
 ## Status
 

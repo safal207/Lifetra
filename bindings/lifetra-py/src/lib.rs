@@ -187,19 +187,10 @@ pub struct PyTrajectoryState {
 #[pymethods]
 impl PyTrajectoryState {
     #[new]
-    #[pyo3(signature = (stage, momentum, stability, history=None))]
-    fn new(
-        stage: &str,
-        momentum: f32,
-        stability: f32,
-        history: Option<Vec<PyStateTransition>>,
-    ) -> PyResult<Self> {
-        let mut inner = CoreTrajectoryState::new(parse_stage(stage)?, momentum, stability);
-        if let Some(history) = history {
-            inner = inner.with_history(history.into_iter().map(|item| item.inner).collect());
-        }
-
-        Ok(Self { inner })
+    fn new(stage: &str, momentum: f32, stability: f32) -> PyResult<Self> {
+        Ok(Self {
+            inner: CoreTrajectoryState::new(parse_stage(stage)?, momentum, stability),
+        })
     }
 
     #[getter]
@@ -227,8 +218,8 @@ impl PyTrajectoryState {
             .collect()
     }
 
-    fn add_transition(&mut self, transition: PyStateTransition) {
-        self.inner.push_transition(transition.inner);
+    fn add_transition(&mut self, transition: PyRef<'_, PyStateTransition>) {
+        self.inner.push_transition(transition.inner.clone());
     }
 
     fn transition_count(&self) -> usize {
@@ -340,5 +331,19 @@ mod tests {
     #[test]
     fn rejects_invalid_lifecycle_stages() {
         assert!(parse_stage("unknown").is_err());
+    }
+
+    #[test]
+    fn adds_transitions_after_construction() {
+        let mut trajectory =
+            CoreTrajectoryState::new(parse_stage("emerging").expect("valid stage"), 0.6, 0.5);
+
+        trajectory.push_transition(CoreStateTransition::new(
+            "initialization",
+            CoreTimestamp::new(10),
+            "first step",
+        ));
+
+        assert_eq!(trajectory.transition_count(), 1);
     }
 }

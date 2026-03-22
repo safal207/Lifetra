@@ -35,3 +35,35 @@ jobs:
 
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
+
+  python-bridge:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install maturin
+        run: python -m pip install --upgrade pip maturin
+
+      - name: Build Python wheel
+        run: |
+          cd bindings/lifetra-py
+          python -m maturin build --release
+
+      - name: Install built wheel
+        run: python -m pip install target/wheels/lifetra_py-*.whl
+
+      - name: Run Python smoke test
+        run: python bindings/lifetra-py/examples/smoke_test.py
