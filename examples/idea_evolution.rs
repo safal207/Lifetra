@@ -57,7 +57,7 @@ fn main() {
     }
 
     let (axis, score) = entity.orientation.dominant_axis();
-    println!("dominant orientation: {:?} ({:.2})", axis, score);
+    println!("dominant orientation: {} ({:.2})", axis, score);
     println!(
         "transitions recorded: {}",
         entity.trajectory.transition_count()
