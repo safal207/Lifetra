@@ -27,6 +27,16 @@ impl SynergyState {
 
         self.cooperative_potential >= threshold && self.emergent_value >= threshold
     }
+
+    /// Returns the average of collaborative potential and realized emergence.
+    pub fn combined_score(&self) -> Scalar {
+        (self.cooperative_potential + self.emergent_value) / 2.0
+    }
+
+    /// Returns the unrealized gap between potential and emergence.
+    pub fn synergy_gap(&self) -> Scalar {
+        (self.cooperative_potential - self.emergent_value).abs()
+    }
 }
 
 #[cfg(test)]
@@ -46,5 +56,13 @@ mod tests {
 
         assert!(state.is_productive(0.8));
         assert!(!state.is_productive(0.85));
+    }
+
+    #[test]
+    fn computes_combined_score_and_gap() {
+        let state = SynergyState::new(0.9, 0.7);
+
+        assert!((state.combined_score() - 0.8).abs() < 0.000_1);
+        assert!((state.synergy_gap() - 0.2).abs() < 0.000_1);
     }
 }

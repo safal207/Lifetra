@@ -47,6 +47,30 @@ fn constructs_complete_entity_state() {
         Timestamp::new(1_710_000_000)
     );
     assert_eq!(entity.causality.influence_balance, 0.82);
+    assert_eq!(
+        entity
+            .causality
+            .strongest_link()
+            .map(|link| link.source.as_str()),
+        Some("systems thinking")
+    );
+    assert_eq!(entity.trajectory.transition_count(), 2);
+    assert_eq!(
+        entity
+            .trajectory
+            .latest_transition()
+            .map(|transition| transition.label.as_str()),
+        Some("synchronization")
+    );
+    assert_eq!(
+        entity.orientation.dominant_axis().0,
+        lifetra::OrientationAxis::Growth
+    );
+    assert!(entity.summary().contains("idea:lifetra"));
+    assert!(entity.health_score() > 0.6);
+    assert!(entity.reflection.has_contradictions());
     assert!(entity.resonance.is_aligned(0.69));
+    assert!(entity.resonance.average_alignment() > 0.74 - 0.05);
     assert!(entity.synergy.is_productive(0.7));
+    assert!(entity.synergy.combined_score() > 0.7);
 }

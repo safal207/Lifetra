@@ -1,3 +1,5 @@
+use std::fmt;
+
 use lifetra_core::{Scalar, Timestamp};
 
 /// High-level lifecycle phase of an entity.
@@ -8,6 +10,20 @@ pub enum LifecycleStage {
     Evolving,
     Transforming,
     Dormant,
+}
+
+impl fmt::Display for LifecycleStage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let label = match self {
+            Self::Emerging => "emerging",
+            Self::Stabilizing => "stabilizing",
+            Self::Evolving => "evolving",
+            Self::Transforming => "transforming",
+            Self::Dormant => "dormant",
+        };
+
+        f.write_str(label)
+    }
 }
 
 /// A named change in the trajectory history of an entity.
@@ -62,6 +78,18 @@ impl TrajectoryState {
     pub fn push_transition(&mut self, transition: StateTransition) {
         self.history.push(transition);
     }
+
+    /// Returns the number of recorded transitions in the trajectory history.
+    pub fn transition_count(&self) -> usize {
+        self.history.len()
+    }
+
+    /// Returns the most recent transition based on timestamp ordering.
+    pub fn latest_transition(&self) -> Option<&StateTransition> {
+        self.history
+            .iter()
+            .max_by_key(|transition| transition.occurred_at)
+    }
 }
 
 #[cfg(test)]
@@ -87,5 +115,24 @@ mod tests {
         state.push_transition(transition.clone());
 
         assert_eq!(state.history, vec![transition]);
+    }
+
+    #[test]
+    fn exposes_transition_queries() {
+        let state =
+            TrajectoryState::new(LifecycleStage::Transforming, 0.8, 0.55).with_history(vec![
+                StateTransition::new("seed", Timestamp::new(10), "first form"),
+                StateTransition::new("pivot", Timestamp::new(30), "changed direction"),
+                StateTransition::new("sync", Timestamp::new(20), "reconciled signals"),
+            ]);
+
+        assert_eq!(state.transition_count(), 3);
+        assert_eq!(
+            state
+                .latest_transition()
+                .map(|transition| transition.label.as_str()),
+            Some("pivot")
+        );
+        assert_eq!(LifecycleStage::Transforming.to_string(), "transforming");
     }
 }

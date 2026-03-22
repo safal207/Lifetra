@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use lifetra_core::Scalar;
 
 /// A directed causal influence that contributes to an entity's present state.
@@ -36,6 +38,23 @@ impl CausalState {
             influence_balance,
         }
     }
+
+    /// Returns the cumulative influence contributed by all causal links.
+    ///
+    /// Unlike `influence_balance`, this value is not normalized and may exceed
+    /// `1.0` when several strong causes are active at once.
+    pub fn total_influence(&self) -> Scalar {
+        self.links.iter().map(|link| link.influence).sum()
+    }
+
+    /// Returns the strongest causal link, if any are present.
+    pub fn strongest_link(&self) -> Option<&CausalLink> {
+        self.links.iter().max_by(|left, right| {
+            left.influence
+                .partial_cmp(&right.influence)
+                .unwrap_or(Ordering::Equal)
+        })
+    }
 }
 
 #[cfg(test)]
@@ -48,5 +67,23 @@ mod tests {
 
         assert_eq!(state.links[0].source, "origin");
         assert_eq!(state.influence_balance, 0.75);
+    }
+
+    #[test]
+    fn aggregates_total_influence_and_strongest_link() {
+        let state = CausalState::new(
+            vec![
+                CausalLink::new("curiosity", 0.3),
+                CausalLink::new("research", 0.85),
+                CausalLink::new("feedback", 0.65),
+            ],
+            0.72,
+        );
+
+        assert!((state.total_influence() - 1.8).abs() < 0.000_1);
+        assert_eq!(
+            state.strongest_link().map(|link| link.source.as_str()),
+            Some("research")
+        );
     }
 }

@@ -56,14 +56,31 @@ let entity = EntityState::new(
 
 assert!(entity.resonance.is_aligned(0.69));
 assert!(entity.synergy.is_productive(0.7));
+assert_eq!(entity.trajectory.transition_count(), 1);
+assert!(entity.health_score() > 0.6);
 ```
+
+For a fuller walkthrough, see `examples/idea_evolution.rs`, which models an idea moving from initial spark through prototype and market signal.
 
 ## Notes
 
 - `lifetra-core` is now a true foundational crate, while `lifetra-entity` owns the aggregate `EntityState`.
 - `Scalar` is used consistently across normalized domain measurements.
 - Constructors and threshold helpers expect normalized `0.0..=1.0` values, with `debug_assert!` guards active in debug builds.
-- `TrajectoryState`, `ResonanceState`, and `SynergyState` include small domain helpers for common checks and updates.
+- `CausalState::influence_balance` is the normalized summary signal, while `CausalState::total_influence()` is cumulative and may exceed `1.0`.
+- `CausalState`, `OrientationVector`, `TrajectoryState`, `ReflectionState`, `ResonanceState`, and `SynergyState` include small domain helpers for common queries and checks.
+- `EntityState` now exposes `summary()`, `health_score()`, and `is_coherent()` for first-pass state analysis.
+
+## Coherence semantics
+
+`EntityState::is_coherent(threshold)` currently defines coherence as all of the following being true:
+
+- `health_score() >= threshold`
+- `resonance.average_alignment() >= threshold`
+- `reflection.reflection_score() >= threshold`
+- no recorded contradictions in `ReflectionState`
+
+This is an intentionally explicit v0.1 baseline for Lifetra, not a claim that every possible notion of coherence must follow this formula.
 
 ## Status
 
