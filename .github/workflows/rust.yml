@@ -60,7 +60,7 @@ jobs:
       - name: Build Python wheel
         run: |
           cd bindings/lifetra-py
-          python -m maturin build --release
+          python -m maturin build --release --out ../../target/wheels
 
       - name: Install built wheel
         run: python -m pip install target/wheels/lifetra_py-*.whl
