@@ -1,3 +1,5 @@
+use std::fmt;
+
 use lifetra_core::{Scalar, Timestamp};
 
 /// High-level lifecycle phase of an entity.
@@ -8,6 +10,20 @@ pub enum LifecycleStage {
     Evolving,
     Transforming,
     Dormant,
+}
+
+impl fmt::Display for LifecycleStage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let label = match self {
+            Self::Emerging => "emerging",
+            Self::Stabilizing => "stabilizing",
+            Self::Evolving => "evolving",
+            Self::Transforming => "transforming",
+            Self::Dormant => "dormant",
+        };
+
+        f.write_str(label)
+    }
 }
 
 /// A named change in the trajectory history of an entity.
@@ -117,5 +133,6 @@ mod tests {
                 .map(|transition| transition.label.as_str()),
             Some("pivot")
         );
+        assert_eq!(LifecycleStage::Transforming.to_string(), "transforming");
     }
 }

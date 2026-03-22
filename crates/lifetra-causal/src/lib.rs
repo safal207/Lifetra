@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use lifetra_core::Scalar;
 
 /// A directed causal influence that contributes to an entity's present state.
@@ -38,6 +40,9 @@ impl CausalState {
     }
 
     /// Returns the cumulative influence contributed by all causal links.
+    ///
+    /// Unlike `influence_balance`, this value is not normalized and may exceed
+    /// `1.0` when several strong causes are active at once.
     pub fn total_influence(&self) -> Scalar {
         self.links.iter().map(|link| link.influence).sum()
     }
@@ -47,7 +52,7 @@ impl CausalState {
         self.links.iter().max_by(|left, right| {
             left.influence
                 .partial_cmp(&right.influence)
-                .unwrap_or(std::cmp::Ordering::Equal)
+                .unwrap_or(Ordering::Equal)
         })
     }
 }

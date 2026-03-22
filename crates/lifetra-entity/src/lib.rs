@@ -56,7 +56,7 @@ impl EntityState {
             .unwrap_or("none");
 
         format!(
-            "Entity `{}` is in {:?} stage with dominant orientation {:?} ({:.2}), \
+            "Entity `{}` is in {} stage with dominant orientation {} ({:.2}), \
 health {:.2}, strongest cause {}, latest transition {}, resonance {:.2}, synergy {:.2}.",
             self.id.as_str(),
             self.trajectory.stage,
@@ -83,7 +83,9 @@ health {:.2}, strongest cause {}, latest transition {}, resonance {:.2}, synergy
             .clamp(0.0, 1.0)
     }
 
-    /// Returns true when health, resonance, and reflection coherence meet the given threshold.
+    /// Returns true when the entity clears the threshold for health, average
+    /// resonance, and reflection quality while also carrying no explicit
+    /// contradictions.
     pub fn is_coherent(&self, threshold: Scalar) -> bool {
         debug_assert!((0.0..=1.0).contains(&threshold));
 
@@ -137,7 +139,7 @@ mod tests {
         let summary = entity.summary();
 
         assert!(summary.contains("entity-2"));
-        assert!(summary.contains("Truth"));
+        assert!(summary.contains("truth"));
         assert!(entity.health_score() > 0.7);
         assert!(entity.is_coherent(0.7));
     }

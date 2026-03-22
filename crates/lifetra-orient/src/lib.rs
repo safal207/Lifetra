@@ -1,3 +1,5 @@
+use std::fmt;
+
 use lifetra_core::Scalar;
 
 /// Named axis within the orientation vector.
@@ -7,6 +9,19 @@ pub enum OrientationAxis {
     Stability,
     Truth,
     Connection,
+}
+
+impl fmt::Display for OrientationAxis {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let label = match self {
+            Self::Growth => "growth",
+            Self::Stability => "stability",
+            Self::Truth => "truth",
+            Self::Connection => "connection",
+        };
+
+        f.write_str(label)
+    }
 }
 
 /// Directional tendencies that describe where an entity is trying to move.
@@ -81,5 +96,6 @@ mod tests {
 
         assert_eq!(orientation.dominant_axis(), (OrientationAxis::Truth, 0.91));
         assert!((orientation.average_intensity() - 0.78).abs() < 0.000_1);
+        assert_eq!(OrientationAxis::Truth.to_string(), "truth");
     }
 }
