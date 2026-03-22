@@ -36,6 +36,11 @@ impl ResonanceState {
             && self.world_alignment >= threshold
             && self.temporal_alignment >= threshold
     }
+
+    /// Returns the average alignment across self, world, and time.
+    pub fn average_alignment(&self) -> Scalar {
+        (self.self_alignment + self.world_alignment + self.temporal_alignment) / 3.0
+    }
 }
 
 #[cfg(test)]
@@ -56,5 +61,12 @@ mod tests {
         assert!(state.is_aligned(0.7));
         // Fails at `0.8` because temporal alignment remains below the threshold.
         assert!(!state.is_aligned(0.8));
+    }
+
+    #[test]
+    fn computes_average_alignment() {
+        let state = ResonanceState::new(0.9, 0.75, 0.6);
+
+        assert!((state.average_alignment() - 0.75).abs() < 0.000_1);
     }
 }
