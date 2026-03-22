@@ -20,6 +20,8 @@ impl SynergyState {
     }
 
     /// Returns true when collaboration is both promising and already generative.
+    ///
+    /// The threshold is expected to be in the `0.0..=1.0` range.
     pub fn is_productive(&self, threshold: Scalar) -> bool {
         debug_assert!((0.0..=1.0).contains(&threshold));
 

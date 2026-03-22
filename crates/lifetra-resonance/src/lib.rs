@@ -26,7 +26,9 @@ impl ResonanceState {
         }
     }
 
-    /// Returns true when all alignment dimensions meet or exceed the given threshold.
+    /// Returns true when all alignment dimensions meet or exceed the given normalized threshold.
+    ///
+    /// The threshold is expected to be in the `0.0..=1.0` range.
     pub fn is_aligned(&self, threshold: Scalar) -> bool {
         debug_assert!((0.0..=1.0).contains(&threshold));
 
@@ -52,6 +54,7 @@ mod tests {
         let state = ResonanceState::new(0.85, 0.8, 0.75);
 
         assert!(state.is_aligned(0.7));
+        // Fails at `0.8` because temporal alignment remains below the threshold.
         assert!(!state.is_aligned(0.8));
     }
 }

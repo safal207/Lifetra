@@ -62,7 +62,7 @@ assert!(entity.synergy.is_productive(0.7));
 
 - `lifetra-core` is now a true foundational crate, while `lifetra-entity` owns the aggregate `EntityState`.
 - `Scalar` is used consistently across normalized domain measurements.
-- Constructors include `debug_assert!` guards for normalized `0.0..=1.0` values in debug builds.
+- Constructors and threshold helpers expect normalized `0.0..=1.0` values, with `debug_assert!` guards active in debug builds.
 - `TrajectoryState`, `ResonanceState`, and `SynergyState` include small domain helpers for common checks and updates.
 
 ## Status
