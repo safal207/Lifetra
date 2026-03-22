@@ -1,2 +1,5 @@
 # Lifetra
-Lifetra is a Rust library for modeling living trajectories of ideas through causality, orientation, temporal evolution, self-reflection, resonance, and synergy.
+
+**Lifetra — living trajectories of ideas.**
+
+A Rust library for modeling causality, orientation, temporal evolution, self-reflection, resonance, and synergy in living systems and ideas.
