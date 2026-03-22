@@ -1,0 +1,24 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "lifetra-py"
+version = "0.1.0"
+description = "Minimal Python bridge for Lifetra."
+readme = "../../README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+  { name = "OpenAI Codex" }
+]
+classifiers = [
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+]
+
+[tool.maturin]
+module-name = "lifetra_py"
+
+features = ["python-extension"]

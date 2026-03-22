@@ -17,6 +17,7 @@ members = [
     "crates/lifetra-reflect",
     "crates/lifetra-resonance",
     "crates/lifetra-synergy",
+    "bindings/lifetra-py",
 ]
 resolver = "2"
 
