@@ -1,0 +1,10 @@
+[package]
+name = "lifetra-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "lifetra_core"
+path = "src/lib.rs"

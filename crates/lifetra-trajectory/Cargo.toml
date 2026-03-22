@@ -1,0 +1,13 @@
+[package]
+name = "lifetra-trajectory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+lifetra-core.workspace = true
+
+[lib]
+name = "lifetra_trajectory"
+path = "src/lib.rs"
