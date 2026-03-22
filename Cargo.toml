@@ -1,0 +1,44 @@
+[package]
+name = "lifetra"
+version = "0.1.0"
+edition = "2021"
+description = "Model living trajectories of ideas and entities through causality, orientation, reflection, resonance, and synergy."
+license = "MIT"
+repository = "https://github.com/safal207/Lifetra"
+
+[workspace]
+members = [
+    ".",
+    "crates/lifetra-core",
+    "crates/lifetra-causal",
+    "crates/lifetra-orient",
+    "crates/lifetra-trajectory",
+    "crates/lifetra-reflect",
+    "crates/lifetra-resonance",
+    "crates/lifetra-synergy",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/safal207/Lifetra"
+version = "0.1.0"
+
+[workspace.dependencies]
+lifetra-core = { path = "crates/lifetra-core", version = "0.1.0" }
+lifetra-causal = { path = "crates/lifetra-causal", version = "0.1.0" }
+lifetra-orient = { path = "crates/lifetra-orient", version = "0.1.0" }
+lifetra-trajectory = { path = "crates/lifetra-trajectory", version = "0.1.0" }
+lifetra-reflect = { path = "crates/lifetra-reflect", version = "0.1.0" }
+lifetra-resonance = { path = "crates/lifetra-resonance", version = "0.1.0" }
+lifetra-synergy = { path = "crates/lifetra-synergy", version = "0.1.0" }
+
+[dependencies]
+lifetra-core.workspace = true
+lifetra-causal.workspace = true
+lifetra-orient.workspace = true
+lifetra-trajectory.workspace = true
+lifetra-reflect.workspace = true
+lifetra-resonance.workspace = true
+lifetra-synergy.workspace = true

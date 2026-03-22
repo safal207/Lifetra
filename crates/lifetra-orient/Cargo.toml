@@ -1,0 +1,10 @@
+[package]
+name = "lifetra-orient"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "lifetra_orient"
+path = "src/lib.rs"

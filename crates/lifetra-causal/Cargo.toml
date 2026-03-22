@@ -1,0 +1,10 @@
+[package]
+name = "lifetra-causal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "lifetra_causal"
+path = "src/lib.rs"
