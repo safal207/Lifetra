@@ -7,7 +7,7 @@ use lifetra::{
 fn constructs_complete_entity_state() {
     let transition = StateTransition::new(
         "initialization",
-        Timestamp::new(1_710_000_000).epoch_seconds(),
+        Timestamp::new(1_710_000_000),
         "concept takes coherent form",
     );
 
@@ -15,7 +15,7 @@ fn constructs_complete_entity_state() {
         .with_history(vec![transition.clone()]);
     trajectory.push_transition(StateTransition::new(
         "synchronization",
-        Timestamp::new(1_710_000_600).epoch_seconds(),
+        Timestamp::new(1_710_000_600),
         "entity resonates with adjacent ideas",
     ));
 
@@ -42,6 +42,10 @@ fn constructs_complete_entity_state() {
 
     assert_eq!(entity.id.as_str(), "idea:lifetra");
     assert_eq!(entity.trajectory.history.len(), 2);
+    assert_eq!(
+        entity.trajectory.history[0].occurred_at,
+        Timestamp::new(1_710_000_000)
+    );
     assert_eq!(entity.causality.influence_balance, 0.82);
     assert!(entity.resonance.is_aligned(0.69));
     assert!(entity.synergy.is_productive(0.7));

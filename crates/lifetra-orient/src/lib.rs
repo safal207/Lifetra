@@ -1,20 +1,27 @@
+use lifetra_core::Scalar;
+
 /// Directional tendencies that describe where an entity is trying to move.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct OrientationVector {
-    pub toward_growth: f32,
-    pub toward_stability: f32,
-    pub toward_truth: f32,
-    pub toward_connection: f32,
+    pub toward_growth: Scalar,
+    pub toward_stability: Scalar,
+    pub toward_truth: Scalar,
+    pub toward_connection: Scalar,
 }
 
 impl OrientationVector {
     /// Creates an orientation vector across the core conceptual directions.
     pub fn new(
-        toward_growth: f32,
-        toward_stability: f32,
-        toward_truth: f32,
-        toward_connection: f32,
+        toward_growth: Scalar,
+        toward_stability: Scalar,
+        toward_truth: Scalar,
+        toward_connection: Scalar,
     ) -> Self {
+        debug_assert!((0.0..=1.0).contains(&toward_growth));
+        debug_assert!((0.0..=1.0).contains(&toward_stability));
+        debug_assert!((0.0..=1.0).contains(&toward_truth));
+        debug_assert!((0.0..=1.0).contains(&toward_connection));
+
         Self {
             toward_growth,
             toward_stability,

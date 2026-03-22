@@ -1,13 +1,17 @@
+use lifetra_core::Scalar;
+
 /// A directed causal influence that contributes to an entity's present state.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CausalLink {
     pub source: String,
-    pub influence: f32,
+    pub influence: Scalar,
 }
 
 impl CausalLink {
     /// Creates a causal link from a named source and an influence strength.
-    pub fn new(source: impl Into<String>, influence: f32) -> Self {
+    pub fn new(source: impl Into<String>, influence: Scalar) -> Self {
+        debug_assert!((0.0..=1.0).contains(&influence));
+
         Self {
             source: source.into(),
             influence,
@@ -19,12 +23,14 @@ impl CausalLink {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CausalState {
     pub links: Vec<CausalLink>,
-    pub influence_balance: f32,
+    pub influence_balance: Scalar,
 }
 
 impl CausalState {
     /// Creates causal state from a set of links and a coarse balance score.
-    pub fn new(links: Vec<CausalLink>, influence_balance: f32) -> Self {
+    pub fn new(links: Vec<CausalLink>, influence_balance: Scalar) -> Self {
+        debug_assert!((0.0..=1.0).contains(&influence_balance));
+
         Self {
             links,
             influence_balance,

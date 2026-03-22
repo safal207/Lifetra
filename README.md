@@ -14,7 +14,8 @@ This v0.1 foundation provides a clean, composable domain model rather than a ful
 ## Workspace layout
 
 - `lifetra` — top-level crate that re-exports the public API
-- `lifetra-core` — shared scalar and entity state types
+- `lifetra-core` — foundational primitives such as `EntityId`, `Timestamp`, and `Scalar`
+- `lifetra-entity` — aggregated `EntityState` built from the six domain dimensions
 - `lifetra-causal` — causal links and causal state
 - `lifetra-orient` — orientation vectors across conceptual tendencies
 - `lifetra-trajectory` — lifecycle stages and transition history
@@ -33,7 +34,7 @@ use lifetra::{
 let mut trajectory = TrajectoryState::new(LifecycleStage::Emerging, 0.64, 0.51);
 trajectory.push_transition(StateTransition::new(
     "initialization",
-    Timestamp::new(1_710_000_000).epoch_seconds(),
+    Timestamp::new(1_710_000_000),
     "concept takes coherent form",
 ));
 
@@ -59,8 +60,9 @@ assert!(entity.synergy.is_productive(0.7));
 
 ## Notes
 
-- Public types now include rustdoc comments to improve generated documentation.
-- Several lightweight states implement `Default` to make prototyping and test setup easier.
+- `lifetra-core` is now a true foundational crate, while `lifetra-entity` owns the aggregate `EntityState`.
+- `Scalar` is used consistently across normalized domain measurements.
+- Constructors include `debug_assert!` guards for normalized `0.0..=1.0` values in debug builds.
 - `TrajectoryState`, `ResonanceState`, and `SynergyState` include small domain helpers for common checks and updates.
 
 ## Status

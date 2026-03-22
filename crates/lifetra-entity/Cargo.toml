@@ -1,0 +1,19 @@
+[package]
+name = "lifetra-entity"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+lifetra-core.workspace = true
+lifetra-causal.workspace = true
+lifetra-orient.workspace = true
+lifetra-trajectory.workspace = true
+lifetra-reflect.workspace = true
+lifetra-resonance.workspace = true
+lifetra-synergy.workspace = true
+
+[lib]
+name = "lifetra_entity"
+path = "src/lib.rs"

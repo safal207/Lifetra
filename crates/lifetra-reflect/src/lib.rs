@@ -1,8 +1,10 @@
+use lifetra_core::Scalar;
+
 /// Self-observation state, including confidence, coherence, blind spots, and contradictions.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ReflectionState {
-    pub self_confidence: f32,
-    pub perceived_coherence: f32,
+    pub self_confidence: Scalar,
+    pub perceived_coherence: Scalar,
     pub blind_spots: Vec<String>,
     pub contradictions: Vec<String>,
 }
@@ -10,11 +12,14 @@ pub struct ReflectionState {
 impl ReflectionState {
     /// Creates a reflection state from confidence, coherence, and observed limitations.
     pub fn new(
-        self_confidence: f32,
-        perceived_coherence: f32,
+        self_confidence: Scalar,
+        perceived_coherence: Scalar,
         blind_spots: Vec<String>,
         contradictions: Vec<String>,
     ) -> Self {
+        debug_assert!((0.0..=1.0).contains(&self_confidence));
+        debug_assert!((0.0..=1.0).contains(&perceived_coherence));
+
         Self {
             self_confidence,
             perceived_coherence,

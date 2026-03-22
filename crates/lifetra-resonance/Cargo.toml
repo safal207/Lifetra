@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[dependencies]
+lifetra-core.workspace = true
+
 [lib]
 name = "lifetra_resonance"
 path = "src/lib.rs"

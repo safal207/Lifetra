@@ -5,7 +5,8 @@
 //! resonance, and synergy.
 
 pub use lifetra_causal::{CausalLink, CausalState};
-pub use lifetra_core::{EntityId, EntityState, Scalar, Timestamp};
+pub use lifetra_core::{EntityId, Scalar, Timestamp};
+pub use lifetra_entity::EntityState;
 pub use lifetra_orient::OrientationVector;
 pub use lifetra_reflect::ReflectionState;
 pub use lifetra_resonance::ResonanceState;

@@ -10,6 +10,7 @@ repository = "https://github.com/safal207/Lifetra"
 members = [
     ".",
     "crates/lifetra-core",
+    "crates/lifetra-entity",
     "crates/lifetra-causal",
     "crates/lifetra-orient",
     "crates/lifetra-trajectory",
@@ -27,6 +28,7 @@ version = "0.1.0"
 
 [workspace.dependencies]
 lifetra-core = { path = "crates/lifetra-core", version = "0.1.0" }
+lifetra-entity = { path = "crates/lifetra-entity", version = "0.1.0" }
 lifetra-causal = { path = "crates/lifetra-causal", version = "0.1.0" }
 lifetra-orient = { path = "crates/lifetra-orient", version = "0.1.0" }
 lifetra-trajectory = { path = "crates/lifetra-trajectory", version = "0.1.0" }
@@ -36,6 +38,7 @@ lifetra-synergy = { path = "crates/lifetra-synergy", version = "0.1.0" }
 
 [dependencies]
 lifetra-core.workspace = true
+lifetra-entity.workspace = true
 lifetra-causal.workspace = true
 lifetra-orient.workspace = true
 lifetra-trajectory.workspace = true

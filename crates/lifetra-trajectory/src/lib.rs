@@ -1,3 +1,5 @@
+use lifetra_core::{Scalar, Timestamp};
+
 /// High-level lifecycle phase of an entity.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LifecycleStage {
@@ -12,20 +14,16 @@ pub enum LifecycleStage {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StateTransition {
     pub label: String,
-    pub occurred_at_epoch_seconds: i64,
+    pub occurred_at: Timestamp,
     pub note: String,
 }
 
 impl StateTransition {
     /// Creates a transition event with a label, timestamp, and note.
-    pub fn new(
-        label: impl Into<String>,
-        occurred_at_epoch_seconds: i64,
-        note: impl Into<String>,
-    ) -> Self {
+    pub fn new(label: impl Into<String>, occurred_at: Timestamp, note: impl Into<String>) -> Self {
         Self {
             label: label.into(),
-            occurred_at_epoch_seconds,
+            occurred_at,
             note: note.into(),
         }
     }
@@ -35,14 +33,17 @@ impl StateTransition {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrajectoryState {
     pub stage: LifecycleStage,
-    pub momentum: f32,
-    pub stability: f32,
+    pub momentum: Scalar,
+    pub stability: Scalar,
     pub history: Vec<StateTransition>,
 }
 
 impl TrajectoryState {
     /// Creates a new trajectory state with no recorded history.
-    pub fn new(stage: LifecycleStage, momentum: f32, stability: f32) -> Self {
+    pub fn new(stage: LifecycleStage, momentum: Scalar, stability: Scalar) -> Self {
+        debug_assert!((0.0..=1.0).contains(&momentum));
+        debug_assert!((0.0..=1.0).contains(&stability));
+
         Self {
             stage,
             momentum,
@@ -69,7 +70,7 @@ mod tests {
 
     #[test]
     fn appends_transition_history() {
-        let transition = StateTransition::new("shift", 42, "entered a new phase");
+        let transition = StateTransition::new("shift", Timestamp::new(42), "entered a new phase");
         let state =
             TrajectoryState::new(LifecycleStage::Evolving, 0.7, 0.5).with_history(vec![transition]);
 
@@ -79,7 +80,8 @@ mod tests {
 
     #[test]
     fn pushes_transition_incrementally() {
-        let transition = StateTransition::new("reflection", 99, "tracked a fresh update");
+        let transition =
+            StateTransition::new("reflection", Timestamp::new(99), "tracked a fresh update");
         let mut state = TrajectoryState::new(LifecycleStage::Stabilizing, 0.5, 0.8);
 
         state.push_transition(transition.clone());
