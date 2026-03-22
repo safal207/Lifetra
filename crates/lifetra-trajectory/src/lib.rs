@@ -1,3 +1,4 @@
+/// High-level lifecycle phase of an entity.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LifecycleStage {
     Emerging,
@@ -7,6 +8,7 @@ pub enum LifecycleStage {
     Dormant,
 }
 
+/// A named change in the trajectory history of an entity.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StateTransition {
     pub label: String,
@@ -15,6 +17,7 @@ pub struct StateTransition {
 }
 
 impl StateTransition {
+    /// Creates a transition event with a label, timestamp, and note.
     pub fn new(
         label: impl Into<String>,
         occurred_at_epoch_seconds: i64,
@@ -28,6 +31,7 @@ impl StateTransition {
     }
 }
 
+/// Temporal evolution state including lifecycle, momentum, stability, and history.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrajectoryState {
     pub stage: LifecycleStage,
@@ -37,6 +41,7 @@ pub struct TrajectoryState {
 }
 
 impl TrajectoryState {
+    /// Creates a new trajectory state with no recorded history.
     pub fn new(stage: LifecycleStage, momentum: f32, stability: f32) -> Self {
         Self {
             stage,
@@ -46,9 +51,15 @@ impl TrajectoryState {
         }
     }
 
+    /// Replaces the full transition history.
     pub fn with_history(mut self, history: Vec<StateTransition>) -> Self {
         self.history = history;
         self
+    }
+
+    /// Appends a single transition to the history.
+    pub fn push_transition(&mut self, transition: StateTransition) {
+        self.history.push(transition);
     }
 }
 
@@ -64,5 +75,15 @@ mod tests {
 
         assert_eq!(state.history.len(), 1);
         assert!(matches!(state.stage, LifecycleStage::Evolving));
+    }
+
+    #[test]
+    fn pushes_transition_incrementally() {
+        let transition = StateTransition::new("reflection", 99, "tracked a fresh update");
+        let mut state = TrajectoryState::new(LifecycleStage::Stabilizing, 0.5, 0.8);
+
+        state.push_transition(transition.clone());
+
+        assert_eq!(state.history, vec![transition]);
     }
 }

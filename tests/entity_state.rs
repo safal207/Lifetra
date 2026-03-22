@@ -11,8 +11,13 @@ fn constructs_complete_entity_state() {
         "concept takes coherent form",
     );
 
-    let trajectory = TrajectoryState::new(LifecycleStage::Emerging, 0.64, 0.51)
+    let mut trajectory = TrajectoryState::new(LifecycleStage::Emerging, 0.64, 0.51)
         .with_history(vec![transition.clone()]);
+    trajectory.push_transition(StateTransition::new(
+        "synchronization",
+        Timestamp::new(1_710_000_600).epoch_seconds(),
+        "entity resonates with adjacent ideas",
+    ));
 
     let entity = EntityState::new(
         EntityId::new("idea:lifetra"),
@@ -36,7 +41,8 @@ fn constructs_complete_entity_state() {
     );
 
     assert_eq!(entity.id.as_str(), "idea:lifetra");
-    assert_eq!(entity.trajectory.history, vec![transition]);
+    assert_eq!(entity.trajectory.history.len(), 2);
     assert_eq!(entity.causality.influence_balance, 0.82);
-    assert!(entity.synergy.emergent_value > 0.7);
+    assert!(entity.resonance.is_aligned(0.69));
+    assert!(entity.synergy.is_productive(0.7));
 }

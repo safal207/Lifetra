@@ -1,3 +1,9 @@
+//! Public facade for the Lifetra workspace.
+//!
+//! This crate re-exports the core domain types for modeling living trajectories
+//! of ideas and entities across causality, orientation, trajectory, reflection,
+//! resonance, and synergy.
+
 pub use lifetra_causal::{CausalLink, CausalState};
 pub use lifetra_core::{EntityId, EntityState, Scalar, Timestamp};
 pub use lifetra_orient::OrientationVector;
@@ -17,7 +23,7 @@ mod tests {
             CausalState::new(vec![CausalLink::new("origin", 0.8)], 0.72),
             OrientationVector::new(0.9, 0.6, 0.8, 0.7),
             TrajectoryState::new(LifecycleStage::Emerging, 0.5, 0.4),
-            ReflectionState::new(0.6, 0.7, vec!["scope".into()], Vec::new()),
+            ReflectionState::default(),
             ResonanceState::new(0.8, 0.75, 0.7),
             SynergyState::new(0.85, 0.65),
         );

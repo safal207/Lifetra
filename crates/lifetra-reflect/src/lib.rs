@@ -1,4 +1,5 @@
-#[derive(Debug, Clone, PartialEq)]
+/// Self-observation state, including confidence, coherence, blind spots, and contradictions.
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ReflectionState {
     pub self_confidence: f32,
     pub perceived_coherence: f32,
@@ -7,6 +8,7 @@ pub struct ReflectionState {
 }
 
 impl ReflectionState {
+    /// Creates a reflection state from confidence, coherence, and observed limitations.
     pub fn new(
         self_confidence: f32,
         perceived_coherence: f32,

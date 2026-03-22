@@ -1,4 +1,5 @@
-#[derive(Debug, Clone, PartialEq)]
+/// Directional tendencies that describe where an entity is trying to move.
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct OrientationVector {
     pub toward_growth: f32,
     pub toward_stability: f32,
@@ -7,6 +8,7 @@ pub struct OrientationVector {
 }
 
 impl OrientationVector {
+    /// Creates an orientation vector across the core conceptual directions.
     pub fn new(
         toward_growth: f32,
         toward_stability: f32,

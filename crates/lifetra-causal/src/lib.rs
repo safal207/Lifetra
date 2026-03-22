@@ -1,3 +1,4 @@
+/// A directed causal influence that contributes to an entity's present state.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CausalLink {
     pub source: String,
@@ -5,6 +6,7 @@ pub struct CausalLink {
 }
 
 impl CausalLink {
+    /// Creates a causal link from a named source and an influence strength.
     pub fn new(source: impl Into<String>, influence: f32) -> Self {
         Self {
             source: source.into(),
@@ -13,13 +15,15 @@ impl CausalLink {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+/// Aggregated causal context for an entity.
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct CausalState {
     pub links: Vec<CausalLink>,
     pub influence_balance: f32,
 }
 
 impl CausalState {
+    /// Creates causal state from a set of links and a coarse balance score.
     pub fn new(links: Vec<CausalLink>, influence_balance: f32) -> Self {
         Self {
             links,

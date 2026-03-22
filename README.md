@@ -27,8 +27,15 @@ This v0.1 foundation provides a clean, composable domain model rather than a ful
 ```rust
 use lifetra::{
     CausalLink, CausalState, EntityId, EntityState, LifecycleStage, OrientationVector,
-    ReflectionState, ResonanceState, SynergyState, TrajectoryState,
+    ReflectionState, ResonanceState, StateTransition, SynergyState, Timestamp, TrajectoryState,
 };
+
+let mut trajectory = TrajectoryState::new(LifecycleStage::Emerging, 0.64, 0.51);
+trajectory.push_transition(StateTransition::new(
+    "initialization",
+    Timestamp::new(1_710_000_000).epoch_seconds(),
+    "concept takes coherent form",
+));
 
 let entity = EntityState::new(
     EntityId::new("idea:lifetra"),
@@ -40,19 +47,21 @@ let entity = EntityState::new(
         0.82,
     ),
     OrientationVector::new(0.91, 0.62, 0.88, 0.77),
-    TrajectoryState::new(LifecycleStage::Emerging, 0.64, 0.51),
-    ReflectionState::new(
-        0.68,
-        0.73,
-        vec!["unknown external constraints".into()],
-        vec!["ambition exceeds current implementation".into()],
-    ),
+    trajectory,
+    ReflectionState::default(),
     ResonanceState::new(0.8, 0.74, 0.69),
     SynergyState::new(0.83, 0.71),
 );
 
-assert_eq!(entity.id.as_str(), "idea:lifetra");
+assert!(entity.resonance.is_aligned(0.69));
+assert!(entity.synergy.is_productive(0.7));
 ```
+
+## Notes
+
+- Public types now include rustdoc comments to improve generated documentation.
+- Several lightweight states implement `Default` to make prototyping and test setup easier.
+- `TrajectoryState`, `ResonanceState`, and `SynergyState` include small domain helpers for common checks and updates.
 
 ## Status
 
