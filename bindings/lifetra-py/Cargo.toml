@@ -1,0 +1,22 @@
+[package]
+name = "lifetra-py"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Minimal Python bindings for Lifetra via PyO3."
+
+[lib]
+name = "lifetra_py"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+python-extension = ["pyo3/extension-module"]
+
+[dependencies]
+lifetra-core.workspace = true
+lifetra-resonance.workspace = true
+lifetra-synergy.workspace = true
+lifetra-trajectory.workspace = true
+pyo3 = { version = "0.22.6", features = ["abi3-py39"] }

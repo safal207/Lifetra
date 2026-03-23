@@ -82,6 +82,81 @@ For a fuller walkthrough, see `examples/idea_evolution.rs`, which models an idea
 
 This is an intentionally explicit v0.1 baseline for Lifetra, not a claim that every possible notion of coherence must follow this formula.
 
+
+## Python bindings
+
+Lifetra now includes a minimal Python bridge in `bindings/lifetra-py` built with **PyO3** and **maturin**. The first v0.1 surface is intentionally small and stable so notebooks can work with the same Rust domain types without re-implementing the model in Python.
+
+Currently exposed in Python:
+
+- `Timestamp`
+- `StateTransition`
+- `TrajectoryState`
+- `ResonanceState`
+- `SynergyState`
+- convenience functions: `average_alignment()`, `is_aligned()`, `combined_score()`, `is_productive()`, and `transition_count()`
+
+### Colab quickstart
+
+In a fresh Google Colab runtime, install Rust first, then install `maturin`, build the wheel, and install it with `pip`:
+
+```bash
+git clone https://github.com/safal207/Lifetra.git
+cd Lifetra
+curl https://sh.rustup.rs -sSf | sh -s -- -y
+source "$HOME/.cargo/env"
+python -m pip install --upgrade pip
+python -m pip install maturin
+cd bindings/lifetra-py
+python -m maturin build --release --out ../../target/wheels
+python -m pip install $(find ../../target/wheels -name "lifetra_py-*.whl" | head -n 1)
+```
+
+If you run the setup in separate Colab cells, repeat `source "$HOME/.cargo/env"` in any later cell before invoking `maturin`.
+
+After installation, you can import the extension module directly in a Colab cell:
+
+```python
+from lifetra_py import ResonanceState, SynergyState, Timestamp, StateTransition, TrajectoryState
+```
+
+### Minimal Python usage example
+
+```python
+from lifetra_py import (
+    ResonanceState,
+    StateTransition,
+    SynergyState,
+    Timestamp,
+    TrajectoryState,
+    average_alignment,
+    combined_score,
+    is_aligned,
+    is_productive,
+    transition_count,
+)
+
+trajectory = TrajectoryState("emerging", 0.64, 0.51)
+trajectory.add_transition(
+    StateTransition("initialization", Timestamp(1_710_000_000), "concept takes coherent form")
+)
+trajectory.add_transition(
+    StateTransition("prototype", Timestamp(1_710_086_400), "first external feedback arrives")
+)
+
+resonance = ResonanceState(0.80, 0.74, 0.69)
+synergy = SynergyState(0.83, 0.71)
+
+print(trajectory.summary())
+print(transition_count(trajectory))
+print(average_alignment(resonance))
+print(is_aligned(resonance, 0.69))
+print(combined_score(synergy))
+print(is_productive(synergy, 0.70))
+```
+
+A notebook-ready script version of this flow is available at `bindings/lifetra-py/examples/minimal_usage.py`, and `bindings/lifetra-py/examples/smoke_test.py` provides a minimal validation script for CI and local wheel checks.
+
 ## Status
 
 Lifetra v0.1 focuses on conceptual clarity, a compilable workspace architecture, and domain types that are minimal but meaningful.
