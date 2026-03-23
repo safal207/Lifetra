@@ -108,7 +108,7 @@ source "$HOME/.cargo/env"
 python -m pip install --upgrade pip
 python -m pip install maturin
 cd bindings/lifetra-py
-python -m maturin build --release
+python -m maturin build --release --out ../../target/wheels
 python -m pip install $(find ../../target/wheels -name "lifetra_py-*.whl" | head -n 1)
 ```
 
