@@ -1,5 +1,7 @@
 # Lifetra: Colab Demo (EN)
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/safal207/Lifetra/blob/main/notebooks/colab_demo.ipynb)
+
 > Goal: provide a reproducible, notebook-friendly walkthrough for running the Lifetra Python bindings in Google Colab.
 
 Source demo notebook:  
@@ -128,3 +130,9 @@ Try `Runtime -> Restart runtime`, then rerun Cells 2–4.
 - `bindings/lifetra-py/examples/minimal_usage.py`
 - `bindings/lifetra-py/examples/smoke_test.py`
 - `examples/idea_evolution.rs`
+
+
+## Language switch
+
+- Russian version: `docs/colab-demo-ru.md`
+- Notebook in repository: `notebooks/colab_demo.ipynb`

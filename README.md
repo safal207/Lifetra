@@ -166,6 +166,7 @@ A full Colab demo walkthrough in Russian (including troubleshooting and smoke ch
 - RU walkthrough: `docs/colab-demo-ru.md`
 - EN walkthrough: `docs/colab-demo-en.md`
 - Repository notebook version: `notebooks/colab_demo.ipynb`
+- Open repository notebook in Colab: `https://colab.research.google.com/github/safal207/Lifetra/blob/main/notebooks/colab_demo.ipynb`
 
 
 ## Status

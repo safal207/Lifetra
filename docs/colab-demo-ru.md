@@ -1,5 +1,7 @@
 # Lifetra: Colab-демо (RU)
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/safal207/Lifetra/blob/main/notebooks/colab_demo.ipynb)
+
 > Цель: превратить демо в воспроизводимую инструкцию для Google Colab, которую можно пройти без локальной настройки окружения.
 
 Исходный demo-ноутбук:  
@@ -131,3 +133,9 @@ find /content/Lifetra/target/wheels -name "lifetra_py-*.whl"
 - `bindings/lifetra-py/examples/minimal_usage.py`
 - `bindings/lifetra-py/examples/smoke_test.py`
 - `examples/idea_evolution.rs`
+
+
+## Переключение языка
+
+- English version: `docs/colab-demo-en.md`
+- Notebook в репозитории: `notebooks/colab_demo.ipynb`
