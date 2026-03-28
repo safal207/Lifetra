@@ -159,6 +159,15 @@ A notebook-ready script version of this flow is available at `bindings/lifetra-p
 
 A full Colab demo walkthrough in Russian (including troubleshooting and smoke checks) is available at `docs/colab-demo-ru.md`.
 
+
+### Colab demo docs
+
+- Quick Colab source notebook: `https://colab.research.google.com/drive/1p1WJeUtHt4_rnwkMNGbDTTz_mn0meuzi?hl=ru#scrollTo=pmJUCckOo7GS`
+- RU walkthrough: `docs/colab-demo-ru.md`
+- EN walkthrough: `docs/colab-demo-en.md`
+- Repository notebook version: `notebooks/colab_demo.ipynb`
+
+
 ## Status
 
 Lifetra v0.1 focuses on conceptual clarity, a compilable workspace architecture, and domain types that are minimal but meaningful.
