@@ -157,6 +157,18 @@ print(is_productive(synergy, 0.70))
 
 A notebook-ready script version of this flow is available at `bindings/lifetra-py/examples/minimal_usage.py`, and `bindings/lifetra-py/examples/smoke_test.py` provides a minimal validation script for CI and local wheel checks.
 
+A full Colab demo walkthrough in Russian (including troubleshooting and smoke checks) is available at `docs/colab-demo-ru.md`.
+
+
+### Colab demo docs
+
+- Quick Colab source notebook: `https://colab.research.google.com/drive/1p1WJeUtHt4_rnwkMNGbDTTz_mn0meuzi?hl=ru#scrollTo=pmJUCckOo7GS`
+- RU walkthrough: `docs/colab-demo-ru.md`
+- EN walkthrough: `docs/colab-demo-en.md`
+- Repository notebook version: `notebooks/colab_demo.ipynb`
+- Open repository notebook in Colab: `https://colab.research.google.com/github/safal207/Lifetra/blob/main/notebooks/colab_demo.ipynb`
+
+
 ## Status
 
 Lifetra v0.1 focuses on conceptual clarity, a compilable workspace architecture, and domain types that are minimal but meaningful.
