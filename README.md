@@ -157,7 +157,7 @@ print(is_productive(synergy, 0.70))
 
 A notebook-ready script version of this flow is available at `bindings/lifetra-py/examples/minimal_usage.py`, and `bindings/lifetra-py/examples/smoke_test.py` provides a minimal validation script for CI and local wheel checks.
 
-A documented Colab demo walkthrough (RU) is available at `docs/colab-demo-ru.md`.
+A full Colab demo walkthrough in Russian (including troubleshooting and smoke checks) is available at `docs/colab-demo-ru.md`.
 
 ## Status
 

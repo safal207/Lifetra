@@ -1,30 +1,37 @@
-# Lifetra: оформление Colab-демо в документацию
+# Lifetra: Colab-демо (RU)
 
-> Этот документ переводит demo-сценарий в пошаговый, воспроизводимый формат для Google Colab.
+> Цель: превратить демо в воспроизводимую инструкцию для Google Colab, которую можно пройти без локальной настройки окружения.
 
-## Что показывает демо
+Исходный demo-ноутбук:  
+`https://colab.research.google.com/drive/1p1WJeUtHt4_rnwkMNGbDTTz_mn0meuzi?hl=ru#scrollTo=pmJUCckOo7GS`
 
-Демо проверяет, что Python может использовать Rust-модель Lifetra через модуль `lifetra_py`:
+## Что вы получите после прохождения
 
-- сборка Python wheel через `maturin`;
-- импорт типов (`Timestamp`, `StateTransition`, `TrajectoryState`, `ResonanceState`, `SynergyState`);
-- базовые операции над траекторией, резонансом и синергией;
-- проверка вспомогательных функций (`average_alignment`, `combined_score`, `is_aligned`, `is_productive`, `transition_count`).
+- собранный и установленный Python-модуль `lifetra_py` (через Rust + maturin);
+- рабочий пример с `TrajectoryState`, `ResonanceState` и `SynergyState`;
+- быстрые проверки корректности (`transition_count`, `is_aligned`, `is_productive`);
+- готовую основу для экспериментов в вашем Colab.
 
-## 1) Подготовка Colab-окружения
+---
 
-Выполните в первой ячейке:
+## Ячейка 1 — подготовка окружения
 
 ```bash
+# clone
+cd /content
 git clone https://github.com/safal207/Lifetra.git
 cd Lifetra
+
+# rust toolchain
 curl https://sh.rustup.rs -sSf | sh -s -- -y
 source "$HOME/.cargo/env"
+
+# python tooling
 python -m pip install --upgrade pip
 python -m pip install maturin
 ```
 
-## 2) Сборка и установка `lifetra_py`
+## Ячейка 2 — сборка и установка `lifetra_py`
 
 ```bash
 cd /content/Lifetra/bindings/lifetra-py
@@ -33,9 +40,16 @@ python -m maturin build --release --out ../../target/wheels
 python -m pip install $(find ../../target/wheels -name "lifetra_py-*.whl" | head -n 1)
 ```
 
-> Если выполняете команды в разных ячейках, повторяйте `source "$HOME/.cargo/env"` перед `maturin`.
+> Если вы запускаете команды в разных ячейках, повторяйте `source "$HOME/.cargo/env"` перед `maturin`.
 
-## 3) Проверка демо в Python
+## Ячейка 3 — проверка импорта
+
+```python
+from lifetra_py import ResonanceState, SynergyState, Timestamp, StateTransition, TrajectoryState
+print("lifetra_py import: OK")
+```
+
+## Ячейка 4 — демо-сценарий
 
 ```python
 from lifetra_py import (
@@ -70,39 +84,50 @@ print("combined_score:", combined_score(synergy))
 print("is_productive(0.70):", is_productive(synergy, 0.70))
 ```
 
-Ожидаемое поведение:
+### Ожидаемый результат
 
-- отображается текстовое summary траектории;
-- `transition_count` возвращает `2`;
+- `transition_count` равен `2`;
 - `is_aligned(0.69)` возвращает `True`;
-- `is_productive(0.70)` возвращает `True`.
+- `is_productive(0.70)` возвращает `True`;
+- выводится summary траектории.
 
-## 4) Частые проблемы
+## Ячейка 5 — быстрый smoke check
+
+```bash
+cd /content/Lifetra
+python bindings/lifetra-py/examples/smoke_test.py
+```
+
+---
+
+## Частые проблемы
 
 ### `maturin: command not found`
-Убедитесь, что команда установки выполнилась без ошибки:
 
 ```bash
 python -m pip install maturin
 ```
 
-### Rust не подхватился в новой ячейке
-Повторите:
+### `cargo`/`rustc` не видны в текущей ячейке
 
 ```bash
 source "$HOME/.cargo/env"
 ```
 
 ### wheel не найден
-Проверьте, что сборка прошла успешно:
 
 ```bash
 find /content/Lifetra/target/wheels -name "lifetra_py-*.whl"
 ```
 
-## 5) Где смотреть расширенные примеры
+### После установки модуль не импортируется
+
+Иногда помогает перезапустить runtime (`Runtime -> Restart runtime`) и повторить ячейки 2–4.
+
+---
+
+## Полезные файлы в репозитории
 
 - `bindings/lifetra-py/examples/minimal_usage.py`
 - `bindings/lifetra-py/examples/smoke_test.py`
 - `examples/idea_evolution.rs`
-
