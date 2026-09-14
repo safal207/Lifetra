@@ -119,7 +119,7 @@ This creates a distinction between local observation and a proof-backed state tr
 B0 --proof carry--> B1 --proof carry--> B2 --proof carry--> B3
 ```
 
-The first implementation deliberately keeps the thread strict and inspectable:
+The current implementation is intentionally a **linear MVP**, not yet a branching/concurrent trajectory graph. It keeps the first continuity rules strict and inspectable:
 
 - beads are ordered in time;
 - temporal overlap is rejected for one linear thread;
