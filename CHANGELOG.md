@@ -12,7 +12,9 @@
 - add `ProofCarry` receipts and proof-continuity validation;
 - add provenance-preserving causal zoom from finer beads into coarser temporal beads;
 - preserve unresolved unknowns during aggregation so zoom cannot manufacture certainty;
-- add recovery and bead-chain examples plus architecture documentation.
+- add proof-backed `ProvenOrientation` and signed `OrientationDelta` at the top-level orchestration layer;
+- keep intention separate from evidence: orientation delta can only be derived from a commit that carries proof references;
+- add recovery, bead-chain, and orientation-delta examples plus architecture documentation.
 
 ## 0.1.0
 
