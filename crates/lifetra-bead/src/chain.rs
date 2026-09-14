@@ -1,8 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::{
-    BeadCommit, BeadId, BeadScale, EvidenceRef, EvidenceStatus, TrajectoryBead,
-};
+use crate::{BeadCommit, BeadId, BeadScale, EvidenceRef, EvidenceStatus, TrajectoryBead};
 
 /// A proof-preserving link between two consecutive beads on one linear trajectory.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -143,9 +141,7 @@ impl BeadChain {
     pub fn temporal_gaps(&self) -> Vec<i64> {
         self.beads
             .windows(2)
-            .map(|window| {
-                window[1].starts_at.epoch_seconds() - window[0].ends_at.epoch_seconds()
-            })
+            .map(|window| window[1].starts_at.epoch_seconds() - window[0].ends_at.epoch_seconds())
             .collect()
     }
 
