@@ -1,3 +1,9 @@
+mod chain;
+
+pub use chain::{
+    AggregationBlock, BeadAggregate, BeadChain, ChainBlock, ProofCarry,
+};
+
 use lifetra_core::{Scalar, Timestamp};
 use lifetra_trajectory::{StateTransition, TrajectoryState};
 
