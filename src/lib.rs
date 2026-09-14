@@ -2,11 +2,12 @@
 //!
 //! This crate re-exports the core domain types for modeling living trajectories
 //! of ideas and entities across causality, orientation, trajectory, reflection,
-//! resonance, synergy, and bounded trajectory beads.
+//! resonance, synergy, bounded trajectory beads, and proof-carrying bead chains.
 
 pub use lifetra_bead::{
-    BeadCommit, BeadId, BeadScale, CommitBlock, EvidenceRef, EvidenceStatus, SectorEdge,
-    SectorGraph, SectorKind, SectorNode, TrajectoryBead,
+    AggregationBlock, BeadAggregate, BeadChain, BeadCommit, BeadId, BeadScale, ChainBlock,
+    CommitBlock, EvidenceRef, EvidenceStatus, ProofCarry, SectorEdge, SectorGraph, SectorKind,
+    SectorNode, TrajectoryBead,
 };
 pub use lifetra_causal::{CausalLink, CausalState};
 pub use lifetra_core::{EntityId, Scalar, Timestamp};
@@ -53,5 +54,37 @@ mod tests {
         ));
 
         assert_eq!(bead.supported_evidence_count(), 1);
+    }
+
+    #[test]
+    fn facade_exposes_proof_carrying_chains() {
+        let first = TrajectoryBead::new(
+            BeadId::new("b1"),
+            BeadScale::Minute,
+            Timestamp::new(0),
+            Timestamp::new(60),
+        )
+        .with_evidence(EvidenceRef::new(
+            "proof:1",
+            EvidenceStatus::Supported,
+            "verified",
+        ));
+        let commit = first
+            .prove_transition("verified", "first step")
+            .expect("proof-backed bead should commit");
+        let second = TrajectoryBead::new(
+            BeadId::new("b2"),
+            BeadScale::Minute,
+            Timestamp::new(60),
+            Timestamp::new(120),
+        );
+
+        let mut chain = BeadChain::new();
+        chain.append(first).expect("first bead should append");
+        chain
+            .append_with_commit(second, &commit)
+            .expect("proof should carry into second bead");
+
+        assert!(chain.proof_continuity_is_intact());
     }
 }
