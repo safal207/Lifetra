@@ -3,10 +3,15 @@
 //! This crate re-exports the core domain types for modeling living trajectories
 //! of ideas and entities across causality, orientation, trajectory, reflection,
 //! resonance, synergy, bounded trajectory beads, proof-carrying bead chains,
-//! and proof-backed orientation deltas.
+//! proof-backed orientation deltas, and bounded correction policies.
 
+mod correction_policy;
 mod orientation_delta;
 
+pub use correction_policy::{
+    CorrectionBlock, CorrectionDecision, CorrectionMemory, CorrectionPolicy,
+    OrientationAdjustment,
+};
 pub use lifetra_bead::{
     AggregationBlock, BeadAggregate, BeadChain, BeadCommit, BeadId, BeadScale, ChainBlock,
     CommitBlock, EvidenceRef, EvidenceStatus, ProofCarry, SectorEdge, SectorGraph, SectorKind,
@@ -114,5 +119,34 @@ mod tests {
         let delta = OrientationDelta::between(OrientationVector::new(0.8, 0.6, 0.9, 0.5), proven);
 
         assert!(delta.alignment_score() > 0.97);
+    }
+
+    #[test]
+    fn facade_exposes_bounded_correction_policy() {
+        let bead = TrajectoryBead::new(
+            BeadId::new("bead:correction"),
+            BeadScale::Event,
+            Timestamp::new(0),
+            Timestamp::new(1),
+        )
+        .with_evidence(EvidenceRef::new(
+            "proof:correction",
+            EvidenceStatus::Supported,
+            "verified movement",
+        ));
+        let commit = bead
+            .prove_transition("move", "verified")
+            .expect("bead should commit");
+        let proven =
+            ProvenOrientation::from_commit(OrientationVector::new(0.4, 0.5, 0.8, 0.5), &commit)
+                .expect("commit should back movement");
+        let delta = OrientationDelta::between(OrientationVector::new(0.8, 0.5, 0.8, 0.5), proven);
+        let policy = CorrectionPolicy::new(0.5, 0.1, 0.05, 0.1).expect("valid policy");
+        let decision = policy
+            .propose(&delta, CorrectionMemory::default())
+            .expect("proof-backed delta should produce correction");
+
+        assert!((decision.adjustment.growth - 0.1).abs() < 0.000_1);
+        assert!((decision.next_orientation.toward_growth - 0.9).abs() < 0.000_1);
     }
 }
