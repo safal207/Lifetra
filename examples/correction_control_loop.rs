@@ -34,9 +34,6 @@ fn main() {
 
     println!("alignment={:.3}", delta.alignment_score());
     println!("growth_adjustment={:.3}", decision.adjustment.growth);
-    println!(
-        "next_growth={:.3}",
-        decision.next_orientation.toward_growth
-    );
+    println!("next_growth={:.3}", decision.next_orientation.toward_growth);
     println!("proofs={:?}", decision.proof_refs);
 }
