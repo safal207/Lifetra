@@ -9,8 +9,7 @@ mod correction_policy;
 mod orientation_delta;
 
 pub use correction_policy::{
-    CorrectionBlock, CorrectionDecision, CorrectionMemory, CorrectionPolicy,
-    OrientationAdjustment,
+    CorrectionBlock, CorrectionDecision, CorrectionMemory, CorrectionPolicy, OrientationAdjustment,
 };
 pub use lifetra_bead::{
     AggregationBlock, BeadAggregate, BeadChain, BeadCommit, BeadId, BeadScale, ChainBlock,
