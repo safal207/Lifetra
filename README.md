@@ -9,7 +9,7 @@
 - **Resonance** — how aligned it is internally and with the world
 - **Synergy** — what emerges through interaction and collaboration
 
-This v0.1 foundation provides a clean, composable domain model rather than a full framework. It is intended to be a semantic seed for future simulation, analysis, and higher-level orchestration.
+The stable v0.1 foundation provides a clean, composable domain model. The current unreleased v0.2 work adds proof-carrying trajectory beads for bounded causal analysis and higher-level orchestration.
 
 ## Trajectory Bead Graph (experimental v0.2)
 
@@ -188,4 +188,4 @@ A full Colab demo walkthrough in Russian (including troubleshooting and smoke ch
 
 ## Status
 
-Lifetra v0.1 focuses on conceptual clarity, a compilable workspace architecture, and domain types that are minimal but meaningful.
+Lifetra v0.1 is the stable foundation; the Trajectory Bead Graph work described above is experimental and currently lives in the v0.2 development branch/PR.
