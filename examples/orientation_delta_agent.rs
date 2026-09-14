@@ -22,11 +22,9 @@ fn main() {
         .prove_transition("tool-result-applied", "verified external movement")
         .expect("proof-backed bead should commit");
 
-    let proven = ProvenOrientation::from_commit(
-        OrientationVector::new(0.55, 0.72, 0.90, 0.40),
-        &commit,
-    )
-    .expect("commit must carry proof");
+    let proven =
+        ProvenOrientation::from_commit(OrientationVector::new(0.55, 0.72, 0.90, 0.40), &commit)
+            .expect("commit must carry proof");
 
     let delta = OrientationDelta::between(intended, proven);
     let (axis, signed_gap) = delta.dominant_gap();
