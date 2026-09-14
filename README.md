@@ -19,6 +19,8 @@ The `lifetra-bead` layer adds bounded local realities (“beads”) along a pers
 
 The top-level orchestration layer also adds proof-backed orientation comparison: `ProvenOrientation` binds an observed movement vector to a verified `BeadCommit`, and `OrientationDelta` compares that proven movement with the intended `OrientationVector`. Intention remains separate from evidence and cannot retroactively change causal truth.
 
+`CorrectionPolicy` closes the first evidence-driven control loop. It converts a proof-backed orientation delta into a bounded proposal for the next intended orientation using proportional gain, per-axis deadband/hysteresis, and a maximum correction step. The correction is a future planning proposal, not evidence about what already happened.
+
 Core invariants:
 
 - `UNKNOWN != FALSE != FAILURE`;
@@ -27,13 +29,15 @@ Core invariants:
 - temporal gaps remain explicit;
 - aggregation may compress context but must not manufacture certainty;
 - intention is not evidence;
-- intended direction may be corrected by proven movement, but cannot rewrite it.
+- intended direction may be corrected by proven movement, but cannot rewrite it;
+- correction may influence the next plan, but cannot rewrite proven movement;
+- small control noise can remain inside a deadband rather than forcing oscillation.
 
-The current linear MVP supports causal zoom across the known temporal order `Minute < Hour < Day < Week`; branching and concurrent threads are left for a later layer. Event and custom beads remain domain-defined. See `docs/trajectory-bead-graph.md`, `docs/orientation-delta.md`, `examples/bead_chain_zoom.rs`, and `examples/orientation_delta_agent.rs`.
+The current linear MVP supports causal zoom across the known temporal order `Minute < Hour < Day < Week`; branching and concurrent threads are left for a later layer. Event and custom beads remain domain-defined. See `docs/trajectory-bead-graph.md`, `docs/orientation-delta.md`, `docs/correction-policy.md`, `examples/bead_chain_zoom.rs`, `examples/orientation_delta_agent.rs`, and `examples/correction_control_loop.rs`.
 
 ## Workspace layout
 
-- `lifetra` — top-level crate that re-exports the public API and hosts cross-domain orchestration primitives
+- `lifetra` — top-level crate that re-exports the public API and hosts cross-domain orchestration and evidence-driven control primitives
 - `lifetra-core` — foundational primitives such as `EntityId`, `Timestamp`, and `Scalar`
 - `lifetra-entity` — aggregated `EntityState` built from the six domain dimensions
 - `lifetra-causal` — causal links and causal state
