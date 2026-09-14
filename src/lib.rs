@@ -2,8 +2,12 @@
 //!
 //! This crate re-exports the core domain types for modeling living trajectories
 //! of ideas and entities across causality, orientation, trajectory, reflection,
-//! resonance, and synergy.
+//! resonance, synergy, and bounded trajectory beads.
 
+pub use lifetra_bead::{
+    BeadCommit, BeadId, BeadScale, CommitBlock, EvidenceRef, EvidenceStatus, SectorEdge,
+    SectorGraph, SectorKind, SectorNode, TrajectoryBead,
+};
 pub use lifetra_causal::{CausalLink, CausalState};
 pub use lifetra_core::{EntityId, Scalar, Timestamp};
 pub use lifetra_entity::EntityState;
@@ -32,5 +36,22 @@ mod tests {
         assert_eq!(entity.id.as_str(), "seed");
         assert_eq!(entity.causality.links.len(), 1);
         assert_eq!(entity.orientation.toward_truth, 0.8);
+    }
+
+    #[test]
+    fn facade_exposes_evidence_gated_beads() {
+        let bead = TrajectoryBead::new(
+            BeadId::new("bead:test"),
+            BeadScale::Event,
+            Timestamp::new(1),
+            Timestamp::new(2),
+        )
+        .with_evidence(EvidenceRef::new(
+            "proof:1",
+            EvidenceStatus::Supported,
+            "verified externally",
+        ));
+
+        assert_eq!(bead.supported_evidence_count(), 1);
     }
 }
