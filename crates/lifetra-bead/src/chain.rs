@@ -1,7 +1,5 @@
 use std::collections::BTreeSet;
 
-use lifetra_core::Timestamp;
-
 use crate::{
     BeadCommit, BeadId, BeadScale, EvidenceRef, EvidenceStatus, TrajectoryBead,
 };
@@ -266,8 +264,15 @@ fn temporal_rank(scale: &BeadScale) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lifetra_core::Timestamp;
 
-    fn supported_bead(id: &str, scale: BeadScale, start: i64, end: i64, proof: &str) -> TrajectoryBead {
+    fn supported_bead(
+        id: &str,
+        scale: BeadScale,
+        start: i64,
+        end: i64,
+        proof: &str,
+    ) -> TrajectoryBead {
         TrajectoryBead::new(
             BeadId::new(id),
             scale,
