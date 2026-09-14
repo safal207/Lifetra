@@ -9,3 +9,4 @@ description = "Bounded trajectory contexts with sector graphs and evidence-gated
 [dependencies]
 lifetra-core.workspace = true
 lifetra-trajectory.workspace = true
+lifetra-orient.workspace = true
