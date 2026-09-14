@@ -17,19 +17,23 @@ The `lifetra-bead` layer adds bounded local realities (“beads”) along a pers
 
 `BeadChain` connects those local contexts into a linear proof-carrying thread. Verified proof can be carried into the next bead without collapsing uncertainty, and lower-level beads can be aggregated into coarser temporal beads while retaining source-bead and proof provenance.
 
+The top-level orchestration layer also adds proof-backed orientation comparison: `ProvenOrientation` binds an observed movement vector to a verified `BeadCommit`, and `OrientationDelta` compares that proven movement with the intended `OrientationVector`. Intention remains separate from evidence and cannot retroactively change causal truth.
+
 Core invariants:
 
 - `UNKNOWN != FALSE != FAILURE`;
 - observation does not imply a trajectory commit;
 - proof carry must preserve evidence identity;
 - temporal gaps remain explicit;
-- aggregation may compress context but must not manufacture certainty.
+- aggregation may compress context but must not manufacture certainty;
+- intention is not evidence;
+- intended direction may be corrected by proven movement, but cannot rewrite it.
 
-The current linear MVP supports causal zoom across the known temporal order `Minute < Hour < Day < Week`; branching and concurrent threads are left for a later layer. Event and custom beads remain domain-defined. See `docs/trajectory-bead-graph.md` and `examples/bead_chain_zoom.rs`.
+The current linear MVP supports causal zoom across the known temporal order `Minute < Hour < Day < Week`; branching and concurrent threads are left for a later layer. Event and custom beads remain domain-defined. See `docs/trajectory-bead-graph.md`, `docs/orientation-delta.md`, `examples/bead_chain_zoom.rs`, and `examples/orientation_delta_agent.rs`.
 
 ## Workspace layout
 
-- `lifetra` — top-level crate that re-exports the public API
+- `lifetra` — top-level crate that re-exports the public API and hosts cross-domain orchestration primitives
 - `lifetra-core` — foundational primitives such as `EntityId`, `Timestamp`, and `Scalar`
 - `lifetra-entity` — aggregated `EntityState` built from the six domain dimensions
 - `lifetra-causal` — causal links and causal state
@@ -188,4 +192,4 @@ A full Colab demo walkthrough in Russian (including troubleshooting and smoke ch
 
 ## Status
 
-Lifetra v0.1 is the stable foundation; the Trajectory Bead Graph work described above is experimental and currently lives in the v0.2 development branch/PR.
+Lifetra v0.1 focuses on conceptual clarity, a compilable workspace architecture, and domain types that are minimal but meaningful.
