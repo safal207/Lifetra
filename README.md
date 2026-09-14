@@ -11,6 +11,22 @@
 
 This v0.1 foundation provides a clean, composable domain model rather than a full framework. It is intended to be a semantic seed for future simulation, analysis, and higher-level orchestration.
 
+## Trajectory Bead Graph (experimental v0.2)
+
+The `lifetra-bead` layer adds bounded local realities (“beads”) along a persistent trajectory. A bead can hold sector-local graphs, explicit evidence state, unresolved unknowns, and a proof-gated transition back into `TrajectoryState`.
+
+`BeadChain` connects those local contexts into a linear proof-carrying thread. Verified proof can be carried into the next bead without collapsing uncertainty, and lower-level beads can be aggregated into coarser temporal beads while retaining source-bead and proof provenance.
+
+Core invariants:
+
+- `UNKNOWN != FALSE != FAILURE`;
+- observation does not imply a trajectory commit;
+- proof carry must preserve evidence identity;
+- temporal gaps remain explicit;
+- aggregation may compress context but must not manufacture certainty.
+
+See `docs/trajectory-bead-graph.md` and `examples/bead_chain_zoom.rs` for the architecture and causal-zoom example.
+
 ## Workspace layout
 
 - `lifetra` — top-level crate that re-exports the public API
@@ -22,6 +38,7 @@ This v0.1 foundation provides a clean, composable domain model rather than a ful
 - `lifetra-reflect` — self-observation and contradictions
 - `lifetra-resonance` — alignment with self, world, and time
 - `lifetra-synergy` — collaborative potential and emergent value
+- `lifetra-bead` — bounded contexts, evidence-gated commits, proof continuity, and causal zoom
 
 ## Example
 
