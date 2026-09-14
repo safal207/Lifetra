@@ -206,6 +206,20 @@ week outcome
 
 The current MVP preserves bead and proof provenance. Future versions can extend the same path down to sector edges, tool calls, receipts, or domain-specific execution identities.
 
+## Orientation delta (next layer)
+
+The thread and zoom layers establish proof-backed movement before attempting to score direction. The next useful extension is to compare local orientation with observed trajectory change without allowing an intention vector to rewrite what actually happened.
+
+Conceptually:
+
+```text
+orientation(Bn) = intended local direction
+trajectory delta(Bn -> Bn+1) = observed proof-backed movement
+orientation delta = comparison, not substitution
+```
+
+This keeps goal alignment analytically separate from causal truth: a system may be strongly oriented toward a goal while its verified trajectory moves elsewhere.
+
 ## Mapping to Lifetra
 
 The existing Lifetra dimensions remain meaningful:
