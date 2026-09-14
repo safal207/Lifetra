@@ -14,7 +14,10 @@
 - preserve unresolved unknowns during aggregation so zoom cannot manufacture certainty;
 - add proof-backed `ProvenOrientation` and signed `OrientationDelta` at the top-level orchestration layer;
 - keep intention separate from evidence: orientation delta can only be derived from a commit that carries proof references;
-- add recovery, bead-chain, and orientation-delta examples plus architecture documentation.
+- add bounded `CorrectionPolicy` with proportional gain, per-axis hysteresis, deadband, and maximum step;
+- add `CorrectionMemory`, `OrientationAdjustment`, and proof-linked `CorrectionDecision` for the next planning step;
+- keep correction separate from evidence: control can change the next intention but cannot rewrite proven movement;
+- add recovery, bead-chain, orientation-delta, and correction-loop examples plus architecture documentation.
 
 ## 0.1.0
 
