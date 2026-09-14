@@ -25,7 +25,7 @@ Core invariants:
 - temporal gaps remain explicit;
 - aggregation may compress context but must not manufacture certainty.
 
-The current causal-zoom hierarchy supports the known temporal order `Minute < Hour < Day < Week`; event and custom beads remain domain-defined. See `docs/trajectory-bead-graph.md` and `examples/bead_chain_zoom.rs`.
+The current linear MVP supports causal zoom across the known temporal order `Minute < Hour < Day < Week`; branching and concurrent threads are left for a later layer. Event and custom beads remain domain-defined. See `docs/trajectory-bead-graph.md` and `examples/bead_chain_zoom.rs`.
 
 ## Workspace layout
 
