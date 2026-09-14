@@ -151,7 +151,7 @@ fn clamp_unit(value: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use lifetra::{
+    use crate::{
         BeadId, BeadScale, EvidenceRef, EvidenceStatus, OrientationVector, ProvenOrientation,
         Timestamp, TrajectoryBead,
     };
