@@ -77,8 +77,7 @@ impl OrientationDelta {
 
     /// Mean absolute gap across the four orientation axes, normalized to 0..=1.
     pub fn mean_absolute_gap(&self) -> Scalar {
-        (self.growth.abs() + self.stability.abs() + self.truth.abs() + self.connection.abs())
-            / 4.0
+        (self.growth.abs() + self.stability.abs() + self.truth.abs() + self.connection.abs()) / 4.0
     }
 
     /// Simple first-pass alignment score: `1 - mean_absolute_gap`.
@@ -136,11 +135,9 @@ mod tests {
     #[test]
     fn proven_orientation_preserves_commit_proof_identity() {
         let commit = committed_bead();
-        let movement = ProvenOrientation::from_commit(
-            OrientationVector::new(0.6, 0.7, 0.8, 0.2),
-            &commit,
-        )
-        .expect("commit has proof");
+        let movement =
+            ProvenOrientation::from_commit(OrientationVector::new(0.6, 0.7, 0.8, 0.2), &commit)
+                .expect("commit has proof");
 
         assert_eq!(movement.bead_id.as_str(), "bead:orientation:1");
         assert_eq!(movement.proof_refs, vec!["receipt:movement:1"]);
@@ -163,15 +160,10 @@ mod tests {
     #[test]
     fn computes_signed_orientation_delta_and_alignment() {
         let commit = committed_bead();
-        let proven = ProvenOrientation::from_commit(
-            OrientationVector::new(0.6, 0.7, 0.8, 0.2),
-            &commit,
-        )
-        .expect("commit has proof");
-        let delta = OrientationDelta::between(
-            OrientationVector::new(0.9, 0.5, 0.8, 0.4),
-            proven,
-        );
+        let proven =
+            ProvenOrientation::from_commit(OrientationVector::new(0.6, 0.7, 0.8, 0.2), &commit)
+                .expect("commit has proof");
+        let delta = OrientationDelta::between(OrientationVector::new(0.9, 0.5, 0.8, 0.4), proven);
 
         assert!((delta.growth - 0.3).abs() < 0.000_1);
         assert!((delta.stability + 0.2).abs() < 0.000_1);
