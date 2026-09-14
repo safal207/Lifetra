@@ -25,7 +25,7 @@ Core invariants:
 - temporal gaps remain explicit;
 - aggregation may compress context but must not manufacture certainty.
 
-See `docs/trajectory-bead-graph.md` and `examples/bead_chain_zoom.rs` for the architecture and causal-zoom example.
+The current causal-zoom hierarchy supports the known temporal order `Minute < Hour < Day < Week`; event and custom beads remain domain-defined. See `docs/trajectory-bead-graph.md` and `examples/bead_chain_zoom.rs`.
 
 ## Workspace layout
 
