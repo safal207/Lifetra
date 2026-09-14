@@ -126,11 +126,7 @@ pub struct EvidenceRef {
 }
 
 impl EvidenceRef {
-    pub fn new(
-        id: impl Into<String>,
-        status: EvidenceStatus,
-        note: impl Into<String>,
-    ) -> Self {
+    pub fn new(id: impl Into<String>, status: EvidenceStatus, note: impl Into<String>) -> Self {
         Self {
             id: id.into(),
             status,
@@ -264,10 +260,7 @@ mod tests {
                 SectorNode::new("receipt", "external receipt observed"),
             ])
             .with_edges(vec![SectorEdge::new(
-                "dispatch",
-                "receipt",
-                "precedes",
-                0.95,
+                "dispatch", "receipt", "precedes", 0.95,
             )]);
 
         assert_eq!(graph.nodes.len(), 2);
