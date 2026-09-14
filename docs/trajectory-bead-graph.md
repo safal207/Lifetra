@@ -221,7 +221,7 @@ The existing Lifetra dimensions remain meaningful:
 
 ## Initial API
 
-The v0.2 seed introduces:
+The current v0.2 development seed introduces:
 
 - `BeadId`;
 - `BeadScale`;
