@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Unreleased (v0.2 development)
 
 ### Trajectory Bead Graph
 
