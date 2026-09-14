@@ -108,15 +108,10 @@ mod tests {
         let commit = bead
             .prove_transition("move", "verified")
             .expect("bead should commit");
-        let proven = ProvenOrientation::from_commit(
-            OrientationVector::new(0.7, 0.6, 0.9, 0.5),
-            &commit,
-        )
-        .expect("commit should back movement");
-        let delta = OrientationDelta::between(
-            OrientationVector::new(0.8, 0.6, 0.9, 0.5),
-            proven,
-        );
+        let proven =
+            ProvenOrientation::from_commit(OrientationVector::new(0.7, 0.6, 0.9, 0.5), &commit)
+                .expect("commit should back movement");
+        let delta = OrientationDelta::between(OrientationVector::new(0.8, 0.6, 0.9, 0.5), proven);
 
         assert!(delta.alignment_score() > 0.97);
     }
