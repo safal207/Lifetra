@@ -2,7 +2,10 @@
 //!
 //! This crate re-exports the core domain types for modeling living trajectories
 //! of ideas and entities across causality, orientation, trajectory, reflection,
-//! resonance, synergy, bounded trajectory beads, and proof-carrying bead chains.
+//! resonance, synergy, bounded trajectory beads, proof-carrying bead chains,
+//! and proof-backed orientation deltas.
+
+mod orientation_delta;
 
 pub use lifetra_bead::{
     AggregationBlock, BeadAggregate, BeadChain, BeadCommit, BeadId, BeadScale, ChainBlock,
@@ -17,6 +20,7 @@ pub use lifetra_reflect::ReflectionState;
 pub use lifetra_resonance::ResonanceState;
 pub use lifetra_synergy::SynergyState;
 pub use lifetra_trajectory::{LifecycleStage, StateTransition, TrajectoryState};
+pub use orientation_delta::{OrientationBlock, OrientationDelta, ProvenOrientation};
 
 #[cfg(test)]
 mod tests {
@@ -86,5 +90,34 @@ mod tests {
             .expect("proof should carry into second bead");
 
         assert!(chain.proof_continuity_is_intact());
+    }
+
+    #[test]
+    fn facade_exposes_proof_backed_orientation_delta() {
+        let bead = TrajectoryBead::new(
+            BeadId::new("bead:orientation"),
+            BeadScale::Event,
+            Timestamp::new(0),
+            Timestamp::new(1),
+        )
+        .with_evidence(EvidenceRef::new(
+            "proof:move",
+            EvidenceStatus::Supported,
+            "verified movement",
+        ));
+        let commit = bead
+            .prove_transition("move", "verified")
+            .expect("bead should commit");
+        let proven = ProvenOrientation::from_commit(
+            OrientationVector::new(0.7, 0.6, 0.9, 0.5),
+            &commit,
+        )
+        .expect("commit should back movement");
+        let delta = OrientationDelta::between(
+            OrientationVector::new(0.8, 0.6, 0.9, 0.5),
+            proven,
+        );
+
+        assert!(delta.alignment_score() > 0.97);
     }
 }
