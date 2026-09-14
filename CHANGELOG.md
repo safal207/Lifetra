@@ -1,17 +1,22 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+## Unreleased
 
-## [0.1.0] - 2026-03-22
+### Trajectory Bead Graph
 
-### Added
+- add `lifetra-bead` as a bounded local-reality layer over persistent trajectories;
+- add explicit `Unknown`, `Supported`, and `Contradicted` evidence semantics;
+- add proof-gated `BeadCommit` transitions back into `TrajectoryState`;
+- add `BeadChain` for linear proof-carrying trajectory continuity;
+- preserve temporal gaps explicitly and reject overlap on one linear chain;
+- add `ProofCarry` receipts and proof-continuity validation;
+- add provenance-preserving causal zoom from finer beads into coarser temporal beads;
+- preserve unresolved unknowns during aggregation so zoom cannot manufacture certainty;
+- add recovery and bead-chain examples plus architecture documentation.
 
-- GitHub Actions CI for `cargo check`, `cargo test`, `cargo clippy -- -D warnings`, and `cargo fmt --check`.
-- First-pass domain helper methods across causality, orientation, trajectory, reflection, resonance, and synergy.
-- Aggregate analysis helpers on `EntityState`: `summary()`, `health_score()`, and `is_coherent()`.
-- `examples/idea_evolution.rs` as the first end-to-end walkthrough for a modeled idea.
+## 0.1.0
 
-### Documentation
-
-- Clarified that `CausalState::total_influence()` is cumulative and may exceed `1.0`.
-- Documented the current v0.1 coherence semantics used by `EntityState::is_coherent()`.
+- establish the Lifetra Rust workspace and six coupled domain dimensions;
+- add aggregate `EntityState` composition and coherence helpers;
+- add Python bindings with PyO3/maturin;
+- add Colab demos and CI validation.
