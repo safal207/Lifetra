@@ -183,7 +183,10 @@ impl ExecutionTrace {
             outcome,
             proof_ref,
         });
-        Ok(self.external.as_ref().expect("external outcome was just recorded"))
+        Ok(self
+            .external
+            .as_ref()
+            .expect("external outcome was just recorded"))
     }
 }
 
@@ -220,15 +223,9 @@ mod tests {
             .expect("valid correction policy")
             .propose(&delta, CorrectionMemory::default())
             .expect("proof-backed delta should produce correction");
-        let envelope = SafetyEnvelope::new(
-            AutonomyLevel::BoundedAutomatic,
-            1,
-            0,
-            false,
-            0.10,
-            0.25,
-        )
-        .expect("valid safety envelope");
+        let envelope =
+            SafetyEnvelope::new(AutonomyLevel::BoundedAutomatic, 1, 0, false, 0.10, 0.25)
+                .expect("valid safety envelope");
 
         DecisionAuthority::new(envelope).evaluate(&correction, AuthorityContext::default())
     }
