@@ -58,20 +58,18 @@ pub enum PostgresCommitResolution {
     Unknown { observed_revision: Option<u64> },
 }
 
-pub fn classify_postgres_failure(
-    error: &Error,
+pub fn classify_postgres_sqlstate(
+    sqlstate: Option<&str>,
     phase: PostgresFailurePhase,
 ) -> PostgresFailureDisposition {
-    let code = error.code().map(|code| code.code());
-
     // PostgreSQL documents serialization failures and deadlocks as aborted
     // transactions. The client must retry the transaction from the beginning.
-    if matches!(code, Some("40001" | "40P01")) {
+    if matches!(sqlstate, Some("40001" | "40P01")) {
         return PostgresFailureDisposition::RetryableAbortedTransaction;
     }
 
-    let connection_like = code.is_none()
-        || code.is_some_and(|code| {
+    let connection_like = sqlstate.is_none()
+        || sqlstate.is_some_and(|code| {
             code.starts_with("08") || matches!(code, "57P01" | "57P02" | "57P03")
         });
 
@@ -84,4 +82,56 @@ pub fn classify_postgres_failure(
     }
 
     PostgresFailureDisposition::Fatal
+}
+
+pub fn classify_postgres_failure(
+    error: &Error,
+    phase: PostgresFailurePhase,
+) -> PostgresFailureDisposition {
+    classify_postgres_sqlstate(error.code().map(|code| code.code()), phase)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serialization_and_deadlock_are_retryable_aborts() {
+        for code in ["40001", "40P01"] {
+            assert_eq!(
+                classify_postgres_sqlstate(Some(code), PostgresFailurePhase::Write),
+                PostgresFailureDisposition::RetryableAbortedTransaction
+            );
+        }
+    }
+
+    #[test]
+    fn connection_loss_is_phase_sensitive() {
+        for code in [None, Some("08006"), Some("57P01")] {
+            assert_eq!(
+                classify_postgres_sqlstate(code, PostgresFailurePhase::Read),
+                PostgresFailureDisposition::RetryableBeforeCommit
+            );
+            assert_eq!(
+                classify_postgres_sqlstate(code, PostgresFailurePhase::Commit),
+                PostgresFailureDisposition::CommitOutcomeUnknown
+            );
+        }
+    }
+
+    #[test]
+    fn permanent_sql_errors_are_not_retried() {
+        assert_eq!(
+            classify_postgres_sqlstate(Some("23505"), PostgresFailurePhase::Write),
+            PostgresFailureDisposition::Fatal
+        );
+    }
+
+    #[test]
+    fn zero_attempt_policy_normalizes_to_one() {
+        assert_eq!(
+            PostgresTransactionRetryPolicy::new(0).normalized(),
+            PostgresTransactionRetryPolicy::new(1)
+        );
+    }
 }
