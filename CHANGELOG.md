@@ -25,7 +25,11 @@
 - keep authorization, dispatch, and externally confirmed effect as separate proof boundaries;
 - preserve `DispatchedEffectUnknown` so missing external acknowledgement is neither success nor failure;
 - reject duplicate receipts and temporally invalid receipt ordering instead of silently rewriting execution history;
-- add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, and execution-receipt examples plus architecture documentation.
+- add `IdempotencyBinding`, `ReconciliationReceipt`, `RetryPolicy`, and `RetryAuthority` for fail-closed redispatch control;
+- require reconciliation before any retry from `DispatchedEffectUnknown` and keep `StillUnknown` non-retryable;
+- distinguish `NoEffectConfirmed` from generic not-found/silence so absence of a record cannot silently authorize another side effect;
+- preserve one `ActionId` and idempotency binding across redispatch decisions, with explicit retry limits and ordinals;
+- add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, and reconciliation-retry examples plus architecture documentation.
 
 ## 0.1.0
 
