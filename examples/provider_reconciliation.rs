@@ -1,5 +1,4 @@
 use std::fs;
-use std::path::PathBuf;
 
 use lifetra::{
     ActionId, AuthorityTicket, BeadId, DurableJournal, ExecutionMode, IdempotencyBinding,
@@ -34,7 +33,7 @@ impl ProviderReconciliationAdapter for ProviderProof {
 }
 
 fn main() {
-    let path = PathBuf::from(std::env::temp_dir()).join(format!(
+    let path = std::env::temp_dir().join(format!(
         "lifetra-provider-reconciliation-{}.journal",
         std::process::id()
     ));
