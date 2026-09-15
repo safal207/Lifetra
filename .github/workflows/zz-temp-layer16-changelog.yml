@@ -1,0 +1,42 @@
+name: temporary layer16 changelog
+
+on:
+  push:
+    branches:
+      - feat/trajectory-bead-graph
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/trajectory-bead-graph
+          fetch-depth: 0
+      - name: Update changelog
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('CHANGELOG.md')
+          text = p.read_text()
+          anchor = '- keep arbitrary remote payments, chains, and HTTP side effects outside the SQL transaction unless the external resource explicitly participates in the same transactional substrate;\n'
+          addition = '''- run PostgreSQL unified-state CAS attempts at `SERIALIZABLE` and classify database failures by transaction phase instead of treating every error as the same retry signal;\n- retry whole transactions only for PostgreSQL-aborted serialization/deadlock failures or connection loss known before commit, bounded by `PostgresTransactionRetryPolicy`;\n- reconcile ambiguous COMMIT acknowledgement through durable revision/payload state, distinguishing `Applied`, `NotApplied`, `Contended`, and fail-closed `Unknown`;\n- keep a superseded ambiguous COMMIT at `Unknown` rather than using a later revision as proof of whether the older write committed;\n- add deterministic SQLSTATE fault classification tests plus PostgreSQL-backed commit-outcome recovery tests;\n'''
+          if 'reconcile ambiguous COMMIT acknowledgement' not in text:
+              if anchor not in text:
+                  raise SystemExit('changelog anchor not found')
+              text = text.replace(anchor, anchor + addition, 1)
+          p.write_text(text)
+          PY
+      - name: Commit changelog
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            exit 0
+          fi
+          git add CHANGELOG.md
+          git commit -m "docs: record PostgreSQL transaction recovery"
+          git push origin HEAD:feat/trajectory-bead-graph
