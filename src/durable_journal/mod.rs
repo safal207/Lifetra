@@ -7,7 +7,8 @@ use lifetra_core::Timestamp;
 
 use crate::{
     ActionId, AttemptBlock, AttemptId, AttemptLedger, AuthorityTicket, ExecutionMode,
-    ExecutionOutcome, IdempotencyBinding, ReconciliationOutcome, RetryDecision, RetryVerdict,
+    ExecutionOutcome, IdempotencyBinding, ReconciliationOutcome, RetryContext, RetryDecision,
+    RetryVerdict,
 };
 
 mod format;
@@ -29,6 +30,16 @@ pub struct PreparedAttempt {
     pub authorization_proof_refs: Vec<String>,
 }
 
+/// Provider reconciliation evidence for a prepared attempt that has no local
+/// dispatch receipt. This is deliberately not a `DispatchReceipt`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedReconciliationReceipt {
+    pub attempt_id: AttemptId,
+    pub observed_at: Timestamp,
+    pub outcome: ReconciliationOutcome,
+    pub proof_ref: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecoveryDirective {
     ReadyForInitialPreparation,
@@ -44,9 +55,39 @@ pub enum RecoveryDirective {
 pub struct RecoveredRuntime {
     pub ledger: AttemptLedger,
     pub pending_prepared: Option<PreparedAttempt>,
+    pub prepared_reconciliations: Vec<PreparedReconciliationReceipt>,
+    pub next_attempt_ordinal: u32,
     pub directive: RecoveryDirective,
     pub repaired_truncated_tail: bool,
     pub last_sequence: u64,
+}
+
+impl RecoveredRuntime {
+    pub fn retry_context(&self) -> RetryContext {
+        RetryContext {
+            redispatches_used: self.next_attempt_ordinal.saturating_sub(1),
+        }
+    }
+
+    pub fn latest_prepared_reconciliation(
+        &self,
+        ordinal: u32,
+    ) -> Option<&PreparedReconciliationReceipt> {
+        self.prepared_reconciliations
+            .iter()
+            .rev()
+            .find(|receipt| receipt.attempt_id.ordinal == ordinal)
+    }
+
+    pub fn latest_terminal_prepared_reconciliation(
+        &self,
+        ordinal: u32,
+    ) -> Option<&PreparedReconciliationReceipt> {
+        self.prepared_reconciliations.iter().rev().find(|receipt| {
+            receipt.attempt_id.ordinal == ordinal
+                && receipt.outcome != ReconciliationOutcome::StillUnknown
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,12 +114,15 @@ pub enum JournalError {
     DecisionActionMismatch,
     DecisionIdempotencyMismatch,
     DecisionDoesNotAuthorizePreparation,
+    RecoveryDirectiveDoesNotAuthorizePreparation,
     PendingPreparedAttempt { ordinal: u32 },
     NoPendingPreparedAttempt,
     PreparedOrdinalMismatch { expected: u32, received: u32 },
     DispatchBeforePreparation,
+    ReconciliationBeforePreparation,
     UnexpectedPreparationOrdinal { expected: u32, received: u32 },
     RecoveredPreparedRequiresReconciliation { ordinal: u32 },
+    PreparedResolutionNotRetrySafe { ordinal: u32 },
     Attempt(AttemptBlock),
 }
 
@@ -227,7 +271,7 @@ impl DurableJournal {
         self.validate_decision_identity(decision)?;
         let recovered = self.recover()?;
 
-        if let Some(pending) = recovered.pending_prepared {
+        if let Some(pending) = recovered.pending_prepared.as_ref() {
             return Err(JournalError::PendingPreparedAttempt {
                 ordinal: pending.id.ordinal,
             });
@@ -242,7 +286,7 @@ impl DurableJournal {
             | RetryVerdict::Block => return Err(JournalError::DecisionDoesNotAuthorizePreparation),
         };
 
-        let expected = recovered.ledger.attempts().len() as u32;
+        let expected = recovered.next_attempt_ordinal;
         if ordinal != expected {
             return Err(JournalError::UnexpectedPreparationOrdinal {
                 expected,
@@ -250,10 +294,48 @@ impl DurableJournal {
             });
         }
 
-        // Reuse AttemptLedger's fail-closed validation on a clone. This proves
-        // the retry verdict is valid without mutating durable state.
-        let mut probe = recovered.ledger.clone();
-        probe.record_dispatch(decision, prepared_at, "journal:prepare-probe")?;
+        match recovered.directive {
+            RecoveryDirective::ReadyForInitialPreparation if ordinal == 0 => {}
+            RecoveryDirective::EvaluateRetry { ordinal: previous }
+                if ordinal == previous.saturating_add(1) => {}
+            _ => return Err(JournalError::RecoveryDirectiveDoesNotAuthorizePreparation),
+        }
+
+        if ordinal == 0 {
+            let mut probe = recovered.ledger.clone();
+            probe.record_dispatch(decision, prepared_at, "journal:prepare-probe")?;
+        } else {
+            let previous_ordinal = ordinal - 1;
+            if let Some(resolution) = recovered
+                .latest_terminal_prepared_reconciliation(previous_ordinal)
+                .filter(|_| {
+                    !recovered
+                        .ledger
+                        .attempts()
+                        .iter()
+                        .any(|attempt| attempt.id.ordinal == previous_ordinal)
+                })
+            {
+                if !matches!(
+                    resolution.outcome,
+                    ReconciliationOutcome::EffectFailed | ReconciliationOutcome::NoEffectConfirmed
+                ) {
+                    return Err(JournalError::PreparedResolutionNotRetrySafe {
+                        ordinal: previous_ordinal,
+                    });
+                }
+                if !decision
+                    .proof_refs
+                    .iter()
+                    .any(|proof| proof == &resolution.proof_ref)
+                {
+                    return Err(JournalError::Attempt(AttemptBlock::RetryProofLineageMissing));
+                }
+            } else {
+                let mut probe = recovered.ledger.clone();
+                probe.record_dispatch(decision, prepared_at, "journal:prepare-probe")?;
+            }
+        }
 
         let prepared = PreparedAttempt {
             id: AttemptId::new(self.ticket.action_id.clone(), ordinal),
@@ -301,6 +383,9 @@ impl DurableJournal {
         Ok(())
     }
 
+    /// Persists provider reconciliation evidence. If the ordinal is currently
+    /// only `Prepared`, the receipt remains prepared-scoped and does not invent
+    /// a local dispatch receipt.
     pub fn record_reconciliation(
         &mut self,
         ordinal: u32,
@@ -310,11 +395,46 @@ impl DurableJournal {
     ) -> Result<(), JournalError> {
         let proof_ref = non_empty_proof(proof_ref)?;
         let recovered = self.recover()?;
-        if let Some(pending) = recovered.pending_prepared {
-            return Err(JournalError::PendingPreparedAttempt {
-                ordinal: pending.id.ordinal,
-            });
+
+        if let Some(pending) = recovered.pending_prepared.as_ref() {
+            if pending.id.ordinal != ordinal {
+                return Err(JournalError::PreparedOrdinalMismatch {
+                    expected: pending.id.ordinal,
+                    received: ordinal,
+                });
+            }
+            if observed_at < pending.prepared_at {
+                return Err(JournalError::ReconciliationBeforePreparation);
+            }
+            self.append_event(&JournalEvent::Reconciliation {
+                ordinal,
+                observed_at,
+                outcome,
+                proof_ref,
+            })?;
+            self.prepared_in_process = None;
+            return Ok(());
         }
+
+        if let Some(previous) = recovered.latest_prepared_reconciliation(ordinal) {
+            if !recovered
+                .ledger
+                .attempts()
+                .iter()
+                .any(|attempt| attempt.id.ordinal == ordinal)
+            {
+                if observed_at < previous.observed_at {
+                    return Err(JournalError::ReconciliationBeforePreparation);
+                }
+                return self.append_event(&JournalEvent::Reconciliation {
+                    ordinal,
+                    observed_at,
+                    outcome,
+                    proof_ref,
+                });
+            }
+        }
+
         let mut probe = recovered.ledger.clone();
         probe.record_reconciliation(ordinal, observed_at, outcome, proof_ref.clone())?;
 
