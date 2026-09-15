@@ -72,8 +72,7 @@ fn seed(
         authority_proof_refs: vec!["proof:postgres:ha-failover-authority".into()],
         issued_at: Timestamp::new(10),
     };
-    let binding =
-        IdempotencyBinding::new(&ticket, IDEMPOTENCY_KEY).expect("idempotency binding");
+    let binding = IdempotencyBinding::new(&ticket, IDEMPOTENCY_KEY).expect("idempotency binding");
     runtime
         .create_action(&ticket, &binding, OPERATION_REF)
         .expect("create replicated action");
