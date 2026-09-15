@@ -24,17 +24,13 @@ fn main() {
     let proven =
         ProvenOrientation::from_commit(OrientationVector::new(0.55, 0.60, 0.90, 0.50), &commit)
             .expect("commit carries proof");
-    let delta = OrientationDelta::between(
-        OrientationVector::new(0.60, 0.60, 0.90, 0.50),
-        proven,
-    );
+    let delta = OrientationDelta::between(OrientationVector::new(0.60, 0.60, 0.90, 0.50), proven);
     let correction = CorrectionPolicy::new(0.50, 0.01, 0.0, 0.05)
         .expect("valid correction policy")
         .propose(&delta, CorrectionMemory::default())
         .expect("proof-backed delta should produce correction");
-    let envelope =
-        SafetyEnvelope::new(AutonomyLevel::BoundedAutomatic, 1, 0, false, 0.10, 0.25)
-            .expect("valid safety envelope");
+    let envelope = SafetyEnvelope::new(AutonomyLevel::BoundedAutomatic, 1, 0, false, 0.10, 0.25)
+        .expect("valid safety envelope");
     let authority =
         DecisionAuthority::new(envelope).evaluate(&correction, AuthorityContext::default());
 
@@ -68,6 +64,12 @@ fn main() {
     println!("action_id={}", trace.ticket.action_id.as_str());
     println!("status={:?}", trace.status());
     println!("authority_proofs={:?}", trace.ticket.authority_proof_refs);
-    println!("dispatch_proof={:?}", trace.dispatch.as_ref().map(|item| &item.proof_ref));
-    println!("external_proof={:?}", trace.external.as_ref().map(|item| &item.proof_ref));
+    println!(
+        "dispatch_proof={:?}",
+        trace.dispatch.as_ref().map(|item| &item.proof_ref)
+    );
+    println!(
+        "external_proof={:?}",
+        trace.external.as_ref().map(|item| &item.proof_ref)
+    );
 }
