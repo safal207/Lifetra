@@ -11,7 +11,11 @@ pub use lifetra_orient::{OrientationAxis, OrientationVector};
 pub use lifetra_reflect::ReflectionState;
 pub use lifetra_resonance::ResonanceState;
 pub use lifetra_synergy::SynergyState;
-pub use lifetra_trajectory::{LifecycleStage, StateTransition, TrajectoryState};
+pub use lifetra_trajectory::{
+    BeadSector, BeadTransition, BeadTransitionKind, LifecycleStage, SectorEdge, SectorNode,
+    StateTransition, TemporalGranularity, TimeWindow, TrajectoryBead, TrajectoryState,
+    TrajectoryThread,
+};
 
 #[cfg(test)]
 mod tests {
@@ -32,5 +36,19 @@ mod tests {
         assert_eq!(entity.id.as_str(), "seed");
         assert_eq!(entity.causality.links.len(), 1);
         assert_eq!(entity.orientation.toward_truth, 0.8);
+    }
+
+    #[test]
+    fn reexports_support_bead_thread_model() {
+        let bead = TrajectoryBead::new(
+            "iteration-1",
+            TimeWindow::new(Timestamp::new(10), Timestamp::new(20)),
+            TemporalGranularity::Iteration,
+            0.75,
+        );
+        let mut thread = TrajectoryThread::new("thread", "preserve direction through change");
+        thread.push_bead(bead);
+
+        assert_eq!(thread.bead_count(), 1);
     }
 }
