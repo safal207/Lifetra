@@ -1,0 +1,11 @@
+[package]
+name = "lifetra-bead"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Bounded trajectory contexts with sector graphs and evidence-gated commits for Lifetra."
+
+[dependencies]
+lifetra-core.workspace = true
+lifetra-trajectory.workspace = true

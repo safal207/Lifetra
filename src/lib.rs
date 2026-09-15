@@ -2,8 +2,61 @@
 //!
 //! This crate re-exports the core domain types for modeling living trajectories
 //! of ideas and entities across causality, orientation, trajectory, reflection,
-//! resonance, and synergy.
+//! resonance, synergy, bounded trajectory beads, proof-carrying bead chains,
+//! proof-backed orientation deltas, bounded correction policies, decision authority,
+//! identity-preserving execution receipts, reconciliation-gated retry authority,
+//! append-only physical attempt ledgers, fsync-backed durable recovery journals,
+//! provider-neutral reconciliation adapters, recovery-lease fencing, downstream
+//! fenced actuators, durable actuator-receipt bridges, and unified fenced storage.
 
+mod actuator_receipt_bridge;
+mod attempt_ledger;
+mod correction_policy;
+mod durable_journal;
+mod execution_receipt;
+mod fenced_actuator;
+mod orientation_delta;
+mod postgres_resilience;
+mod postgres_unified_store;
+mod provider_reconciliation;
+mod reconciliation;
+mod recovery_lease;
+mod safety_authority;
+mod unified_fenced_store;
+
+pub use actuator_receipt_bridge::{
+    ActuatorBridgeBinding, ActuatorBridgeDirective, ActuatorBridgeError,
+    ActuatorBridgeReconcileError, ActuatorBridgeRuntimeError, ActuatorRecoveryAdapter,
+    ActuatorRecoveryObservation, ActuatorRecoveryOutcome, ActuatorRecoveryQuery,
+    DurableActuatorEvidence, DurableActuatorReceiptBridge, PreparedActuatorCall,
+    RecoveredActuatorBridge,
+};
+pub use attempt_ledger::{
+    AttemptBlock, AttemptDispatchReceipt, AttemptExternalReceipt, AttemptId, AttemptLedger,
+    AttemptReconciliationReceipt, AttemptRecord, AttemptStatus,
+};
+pub use correction_policy::{
+    CorrectionBlock, CorrectionDecision, CorrectionMemory, CorrectionPolicy, OrientationAdjustment,
+};
+pub use durable_journal::{
+    DurableJournal, JournalError, PreparedAttempt, PreparedReconciliationReceipt, RecoveredRuntime,
+    RecoveryDirective,
+};
+pub use execution_receipt::{
+    ActionId, AuthorityTicket, DispatchReceipt, ExecutionBlock, ExecutionOutcome, ExecutionStatus,
+    ExecutionTrace, ExternalExecutionReceipt,
+};
+pub use fenced_actuator::{
+    FencedActuatorAdapter, FencedActuatorConfigBlock, FencedActuatorController,
+    FencedActuatorError, FencedActuatorOutcome, FencedActuatorReceipt, FencedActuatorRejection,
+    FencedActuatorRequest, InMemoryActuatorAuthority, InMemoryAppliedEffect,
+    InMemoryFencedActuator, InMemoryFencedActuatorError,
+};
+pub use lifetra_bead::{
+    AggregationBlock, BeadAggregate, BeadChain, BeadCommit, BeadId, BeadScale, ChainBlock,
+    CommitBlock, EvidenceRef, EvidenceStatus, ProofCarry, SectorEdge, SectorGraph, SectorKind,
+    SectorNode, TrajectoryBead,
+};
 pub use lifetra_causal::{CausalLink, CausalState};
 pub use lifetra_core::{EntityId, Scalar, Timestamp};
 pub use lifetra_entity::EntityState;
@@ -12,6 +65,45 @@ pub use lifetra_reflect::ReflectionState;
 pub use lifetra_resonance::ResonanceState;
 pub use lifetra_synergy::SynergyState;
 pub use lifetra_trajectory::{LifecycleStage, StateTransition, TrajectoryState};
+pub use orientation_delta::{OrientationBlock, OrientationDelta, ProvenOrientation};
+pub use postgres_resilience::{
+    classify_postgres_failure, classify_postgres_sqlstate, PostgresCommitResolution,
+    PostgresFailureDisposition, PostgresFailurePhase, PostgresTransactionRetryPolicy,
+};
+pub use postgres_unified_store::{
+    PostgresUnifiedFencedRuntime, PostgresUnifiedFencedStore, PostgresUnifiedStoreError,
+};
+pub use provider_reconciliation::{
+    ProviderObservation, ProviderReconciler, ProviderReconciliationAdapter,
+    ProviderReconciliationError, ProviderReconciliationPhase, ProviderReconciliationQuery,
+    ProviderReconciliationResult,
+};
+pub use reconciliation::{
+    IdempotencyBinding, ReconciliationOutcome, ReconciliationReceipt, RetryAuthority, RetryBlock,
+    RetryContext, RetryDecision, RetryPolicy, RetryReason, RetryVerdict,
+};
+pub use recovery_lease::{
+    FencedAttemptPermit, FencedDurableJournal, FencedJournalError, FencingToken,
+    InMemoryLeaseError, InMemoryRecoveryLeaseStore, LeaseConfigBlock, LeaseVersion, RecoveryLease,
+    RecoveryLeaseBlock, RecoveryLeaseManager, RecoveryLeaseStore, RecoveryWorkerId,
+};
+pub use safety_authority::{
+    ApprovalState, AuthorityContext, AuthorityDecision, AuthorityReason, AuthorityVerdict,
+    AutonomyLevel, DecisionAuthority, ExecutionMode, SafetyConfigBlock, SafetyEnvelope,
+};
+pub use unified_fenced_store::{
+    InMemoryUnifiedFencedStore, InMemoryUnifiedStoreError, UnifiedActionRecord, UnifiedConfigBlock,
+    UnifiedDispatchEvidence, UnifiedEffectEvidence, UnifiedEffectOutcome, UnifiedEvidenceCommit,
+    UnifiedEvidenceSource, UnifiedFencedBlock, UnifiedFencedRuntime, UnifiedFencedStore,
+    UnifiedFencingToken, UnifiedLeaseAuthority, UnifiedOperationBinding, UnifiedPreparedAttempt,
+    UnifiedProjectionMarker, UnifiedReconciliationObservation, UnifiedRuntimeDirective,
+};
+
+impl<E> From<JournalError> for ActuatorBridgeRuntimeError<E> {
+    fn from(value: JournalError) -> Self {
+        Self::Bridge(ActuatorBridgeError::Journal(value))
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -32,5 +124,368 @@ mod tests {
         assert_eq!(entity.id.as_str(), "seed");
         assert_eq!(entity.causality.links.len(), 1);
         assert_eq!(entity.orientation.toward_truth, 0.8);
+    }
+
+    #[test]
+    fn facade_exposes_evidence_gated_beads() {
+        let bead = TrajectoryBead::new(
+            BeadId::new("bead:test"),
+            BeadScale::Event,
+            Timestamp::new(1),
+            Timestamp::new(2),
+        )
+        .with_evidence(EvidenceRef::new(
+            "proof:1",
+            EvidenceStatus::Supported,
+            "verified externally",
+        ));
+
+        assert_eq!(bead.supported_evidence_count(), 1);
+    }
+
+    #[test]
+    fn facade_exposes_proof_carrying_chains() {
+        let first = TrajectoryBead::new(
+            BeadId::new("b1"),
+            BeadScale::Minute,
+            Timestamp::new(0),
+            Timestamp::new(60),
+        )
+        .with_evidence(EvidenceRef::new(
+            "proof:1",
+            EvidenceStatus::Supported,
+            "verified",
+        ));
+        let commit = first
+            .prove_transition("verified", "first step")
+            .expect("proof-backed bead should commit");
+        let second = TrajectoryBead::new(
+            BeadId::new("b2"),
+            BeadScale::Minute,
+            Timestamp::new(60),
+            Timestamp::new(120),
+        );
+
+        let mut chain = BeadChain::new();
+        chain.append(first).expect("first bead should append");
+        chain
+            .append_with_commit(second, &commit)
+            .expect("proof should carry into second bead");
+
+        assert!(chain.proof_continuity_is_intact());
+    }
+
+    #[test]
+    fn facade_exposes_proof_backed_orientation_delta() {
+        let bead = TrajectoryBead::new(
+            BeadId::new("bead:orientation"),
+            BeadScale::Event,
+            Timestamp::new(0),
+            Timestamp::new(1),
+        )
+        .with_evidence(EvidenceRef::new(
+            "proof:move",
+            EvidenceStatus::Supported,
+            "verified movement",
+        ));
+        let commit = bead
+            .prove_transition("move", "verified")
+            .expect("bead should commit");
+        let proven =
+            ProvenOrientation::from_commit(OrientationVector::new(0.7, 0.6, 0.9, 0.5), &commit)
+                .expect("commit should back movement");
+        let delta = OrientationDelta::between(OrientationVector::new(0.8, 0.6, 0.9, 0.5), proven);
+
+        assert!(delta.alignment_score() > 0.97);
+    }
+
+    #[test]
+    fn facade_exposes_bounded_correction_policy() {
+        let bead = TrajectoryBead::new(
+            BeadId::new("bead:correction"),
+            BeadScale::Event,
+            Timestamp::new(0),
+            Timestamp::new(1),
+        )
+        .with_evidence(EvidenceRef::new(
+            "proof:correction",
+            EvidenceStatus::Supported,
+            "verified movement",
+        ));
+        let commit = bead
+            .prove_transition("move", "verified")
+            .expect("bead should commit");
+        let proven =
+            ProvenOrientation::from_commit(OrientationVector::new(0.4, 0.5, 0.8, 0.5), &commit)
+                .expect("commit should back movement");
+        let delta = OrientationDelta::between(OrientationVector::new(0.8, 0.5, 0.8, 0.5), proven);
+        let policy = CorrectionPolicy::new(0.5, 0.1, 0.05, 0.1).expect("valid policy");
+        let decision = policy
+            .propose(&delta, CorrectionMemory::default())
+            .expect("proof-backed delta should produce correction");
+
+        assert!((decision.adjustment.growth - 0.1).abs() < 0.000_1);
+        assert!((decision.next_orientation.toward_growth - 0.9).abs() < 0.000_1);
+    }
+
+    #[test]
+    fn facade_exposes_decision_authority_gate() {
+        let bead = TrajectoryBead::new(
+            BeadId::new("bead:authority"),
+            BeadScale::Event,
+            Timestamp::new(0),
+            Timestamp::new(1),
+        )
+        .with_evidence(EvidenceRef::new(
+            "proof:authority",
+            EvidenceStatus::Supported,
+            "verified movement",
+        ));
+        let commit = bead
+            .prove_transition("move", "verified")
+            .expect("bead should commit");
+        let proven =
+            ProvenOrientation::from_commit(OrientationVector::new(0.6, 0.5, 0.8, 0.5), &commit)
+                .expect("commit should back movement");
+        let delta = OrientationDelta::between(OrientationVector::new(0.8, 0.5, 0.8, 0.5), proven);
+        let correction = CorrectionPolicy::new(0.5, 0.1, 0.05, 0.1)
+            .expect("valid correction policy")
+            .propose(&delta, CorrectionMemory::default())
+            .expect("proof-backed delta should produce correction");
+        let envelope =
+            SafetyEnvelope::new(AutonomyLevel::BoundedAutomatic, 1, 0, false, 0.10, 0.25)
+                .expect("valid safety envelope");
+        let authority = DecisionAuthority::new(envelope);
+        let gate = authority.evaluate(&correction, AuthorityContext::default());
+
+        assert_eq!(
+            gate.verdict,
+            AuthorityVerdict::Allow(ExecutionMode::Automatic)
+        );
+    }
+
+    #[test]
+    fn facade_exposes_authority_ticket_and_execution_receipts() {
+        let bead = TrajectoryBead::new(
+            BeadId::new("bead:execution"),
+            BeadScale::Event,
+            Timestamp::new(0),
+            Timestamp::new(1),
+        )
+        .with_evidence(EvidenceRef::new(
+            "proof:execution",
+            EvidenceStatus::Supported,
+            "verified movement",
+        ));
+        let commit = bead
+            .prove_transition("move", "verified")
+            .expect("bead should commit");
+        let proven =
+            ProvenOrientation::from_commit(OrientationVector::new(0.55, 0.5, 0.8, 0.5), &commit)
+                .expect("commit should back movement");
+        let delta = OrientationDelta::between(OrientationVector::new(0.60, 0.5, 0.8, 0.5), proven);
+        let correction = CorrectionPolicy::new(0.5, 0.01, 0.0, 0.05)
+            .expect("valid correction policy")
+            .propose(&delta, CorrectionMemory::default())
+            .expect("proof-backed delta should produce correction");
+        let envelope =
+            SafetyEnvelope::new(AutonomyLevel::BoundedAutomatic, 1, 0, false, 0.10, 0.25)
+                .expect("valid safety envelope");
+        let authority =
+            DecisionAuthority::new(envelope).evaluate(&correction, AuthorityContext::default());
+        let ticket = AuthorityTicket::issue(
+            ActionId::new("action:execution").expect("valid action id"),
+            &authority,
+            Timestamp::new(2),
+        )
+        .expect("allowed authority should issue ticket");
+        let mut trace = ExecutionTrace::new(ticket);
+
+        trace
+            .record_dispatch(Timestamp::new(3), "proof:dispatch")
+            .expect("dispatch should record");
+        assert_eq!(trace.status(), ExecutionStatus::DispatchedEffectUnknown);
+
+        trace
+            .record_external_outcome(
+                Timestamp::new(4),
+                ExecutionOutcome::Succeeded,
+                "proof:external",
+            )
+            .expect("external outcome should record");
+        assert_eq!(
+            trace.status(),
+            ExecutionStatus::EffectConfirmed(ExecutionOutcome::Succeeded)
+        );
+    }
+
+    #[test]
+    fn facade_exposes_reconciliation_gated_retry_authority() {
+        let ticket = AuthorityTicket {
+            action_id: ActionId::new("action:retry:facade").expect("valid action id"),
+            source_bead: BeadId::new("bead:retry:facade"),
+            execution_mode: ExecutionMode::Automatic,
+            authority_proof_refs: vec!["proof:authority:facade".into()],
+            issued_at: Timestamp::new(10),
+        };
+        let binding = IdempotencyBinding::new(&ticket, "idem:retry:facade").expect("valid key");
+        let mut trace = ExecutionTrace::new(ticket);
+        trace
+            .record_dispatch(Timestamp::new(11), "proof:dispatch:facade")
+            .expect("dispatch should record");
+
+        let authority = RetryAuthority::new(RetryPolicy::new(1, false, true));
+        let before = authority
+            .evaluate(&trace, &binding, None, RetryContext::default())
+            .expect("valid evaluation");
+        assert_eq!(before.verdict, RetryVerdict::ReconcileFirst);
+
+        let receipt = ReconciliationReceipt::new(
+            trace.ticket.action_id.clone(),
+            Timestamp::new(12),
+            ReconciliationOutcome::NoEffectConfirmed,
+            "proof:reconcile:facade",
+        )
+        .expect("valid reconciliation receipt");
+        let after = authority
+            .evaluate(&trace, &binding, Some(&receipt), RetryContext::default())
+            .expect("valid evaluation");
+        assert_eq!(
+            after.verdict,
+            RetryVerdict::RedispatchAllowed { ordinal: 1 }
+        );
+    }
+
+    #[test]
+    fn facade_exposes_append_only_attempt_ledger() {
+        let ticket = AuthorityTicket {
+            action_id: ActionId::new("action:attempt-ledger:facade").expect("valid action id"),
+            source_bead: BeadId::new("bead:attempt-ledger:facade"),
+            execution_mode: ExecutionMode::Automatic,
+            authority_proof_refs: vec!["proof:authority:attempt-ledger".into()],
+            issued_at: Timestamp::new(10),
+        };
+        let binding =
+            IdempotencyBinding::new(&ticket, "idem:attempt-ledger:facade").expect("valid key");
+        let mut ledger = AttemptLedger::new(ticket, binding).expect("valid attempt ledger");
+        let retry_authority = RetryAuthority::new(RetryPolicy::new(1, false, true));
+
+        let (trace, reconciliation, context) = ledger.retry_inputs().expect("initial retry inputs");
+        let initial = retry_authority
+            .evaluate(&trace, &ledger.binding, reconciliation.as_ref(), context)
+            .expect("initial dispatch decision");
+        ledger
+            .record_dispatch(&initial, Timestamp::new(11), "proof:dispatch:attempt:0")
+            .expect("initial attempt should record");
+        ledger
+            .record_reconciliation(
+                0,
+                Timestamp::new(12),
+                ReconciliationOutcome::NoEffectConfirmed,
+                "proof:no-effect:attempt:0",
+            )
+            .expect("attempt reconciliation should record");
+
+        let (trace, reconciliation, context) = ledger.retry_inputs().expect("retry inputs");
+        let retry = retry_authority
+            .evaluate(&trace, &ledger.binding, reconciliation.as_ref(), context)
+            .expect("redispatch decision");
+        let second_id = ledger
+            .record_dispatch(&retry, Timestamp::new(13), "proof:dispatch:attempt:1")
+            .expect("second attempt should record")
+            .id
+            .clone();
+
+        assert_eq!(ledger.attempts().len(), 2);
+        assert_eq!(second_id.ordinal, 1);
+        assert_eq!(second_id.action_id, ledger.ticket.action_id);
+        assert_eq!(ledger.retry_context().redispatches_used, 1);
+        assert_eq!(ledger.binding.key, "idem:attempt-ledger:facade");
+    }
+
+    #[test]
+    fn facade_exposes_downstream_fenced_actuator() {
+        let action_id = ActionId::new("action:actuator:facade").expect("action");
+        let owner = RecoveryWorkerId::new("worker:facade").expect("owner");
+        let permit = FencedAttemptPermit {
+            action_id: action_id.clone(),
+            owner: owner.clone(),
+            fencing_epoch: 3,
+            attempt_ordinal: 0,
+            idempotency_key: "idem:actuator:facade".into(),
+        };
+        let actuator = InMemoryFencedActuator::default();
+        actuator.set_time(Timestamp::new(10)).expect("time");
+        actuator
+            .install_authority(InMemoryActuatorAuthority {
+                action_id,
+                owner,
+                epoch: 3,
+                expires_at: Timestamp::new(20),
+            })
+            .expect("authority");
+
+        let receipt = FencedActuatorController
+            .execute(&permit, "op:actuator:facade", &actuator)
+            .expect("fenced apply");
+        assert_eq!(receipt.outcome, FencedActuatorOutcome::Applied);
+    }
+
+    #[test]
+    fn facade_exposes_unified_fenced_store() {
+        let ticket = AuthorityTicket {
+            action_id: ActionId::new("action:unified:facade").expect("action"),
+            source_bead: BeadId::new("bead:unified:facade"),
+            execution_mode: ExecutionMode::Automatic,
+            authority_proof_refs: vec!["proof:authority:unified:facade".into()],
+            issued_at: Timestamp::new(10),
+        };
+        let binding = IdempotencyBinding::new(&ticket, "idem:unified:facade").expect("binding");
+        let runtime = UnifiedFencedRuntime::new(InMemoryUnifiedFencedStore::default());
+        runtime
+            .create_action(&ticket, &binding, "operation:unified:facade")
+            .expect("create");
+        let token = runtime
+            .acquire(
+                &ticket.action_id,
+                RecoveryWorkerId::new("worker:unified:facade").expect("worker"),
+                Timestamp::new(100),
+                30,
+            )
+            .expect("lease");
+        let decision = RetryDecision {
+            action_id: ticket.action_id.clone(),
+            idempotency_key: binding.key.clone(),
+            verdict: RetryVerdict::InitialDispatchAllowed,
+            reasons: vec![RetryReason::AuthorizedNotDispatched],
+            proof_refs: ticket.authority_proof_refs.clone(),
+        };
+        let permit = runtime
+            .prepare_attempt(&token, &decision, Timestamp::new(101), Timestamp::new(101))
+            .expect("prepare");
+        let receipt = FencedActuatorReceipt {
+            request: FencedActuatorRequest::from_permit(&permit, "operation:unified:facade")
+                .expect("request"),
+            observed_at: Timestamp::new(102),
+            outcome: FencedActuatorOutcome::Applied,
+            proof_ref: "proof:unified:facade".into(),
+        };
+        runtime
+            .record_actuator_receipt(&receipt)
+            .expect("record evidence");
+        assert_eq!(
+            runtime.directive(&ticket.action_id).expect("directive"),
+            UnifiedRuntimeDirective::CloseSucceeded {
+                ordinal: 0,
+                proof_ref: "proof:unified:facade".into(),
+            }
+        );
+        assert_eq!(
+            runtime
+                .projected_supported_evidence(&ticket.action_id)
+                .expect("evidence")
+                .len(),
+            1
+        );
     }
 }

@@ -11,6 +11,22 @@ on:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lifetra
+          POSTGRES_PASSWORD: lifetra
+          POSTGRES_DB: lifetra
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lifetra -d lifetra"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      LIFETRA_TEST_POSTGRES_URL: postgresql://lifetra:lifetra@localhost:5432/lifetra
 
     steps:
       - name: Checkout repository
@@ -30,11 +46,199 @@ jobs:
       - name: cargo test
         run: cargo test --workspace --all-targets
 
+      - name: Seed PostgreSQL restart probe
+        env:
+          LIFETRA_POSTGRES_URL: postgresql://lifetra:lifetra@localhost:5432/lifetra
+          LIFETRA_RESTART_PHASE: seed
+        run: cargo run --quiet --example postgres_restart_probe
+
+      - name: Restart PostgreSQL service
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: |
+          docker restart "$POSTGRES_CONTAINER_ID"
+          for attempt in $(seq 1 30); do
+            if docker exec "$POSTGRES_CONTAINER_ID" pg_isready -U lifetra -d lifetra; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "PostgreSQL did not become ready after restart" >&2
+          exit 1
+
+      - name: Verify PostgreSQL restart durability
+        env:
+          LIFETRA_POSTGRES_URL: postgresql://lifetra:lifetra@localhost:5432/lifetra
+          LIFETRA_RESTART_PHASE: verify
+        run: cargo run --quiet --example postgres_restart_probe
+
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
+
+  postgres-ha:
+    runs-on: ubuntu-latest
+    env:
+      PRIMARY_DSN: postgresql://lifetra:lifetra@localhost:55432/lifetra
+      STANDBY_DSN: postgresql://lifetra:lifetra@localhost:55433/lifetra
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Start PostgreSQL primary
+        run: |
+          set -euo pipefail
+          docker network create lifetra-ha
+          docker volume create lifetra-ha-primary-data
+          docker volume create lifetra-ha-standby-data
+          docker run -d \
+            --name lifetra-ha-primary \
+            --network lifetra-ha \
+            --network-alias lifetra-ha-primary \
+            -p 55432:5432 \
+            -e POSTGRES_USER=lifetra \
+            -e POSTGRES_PASSWORD=lifetra \
+            -e POSTGRES_DB=lifetra \
+            -v lifetra-ha-primary-data:/var/lib/postgresql/data \
+            postgres:17 \
+            postgres \
+              -c wal_level=replica \
+              -c max_wal_senders=10 \
+              -c max_replication_slots=10 \
+              -c hot_standby=on
+
+          for attempt in $(seq 1 30); do
+            if docker exec lifetra-ha-primary pg_isready -U lifetra -d lifetra; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "primary did not become ready" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker exec lifetra-ha-primary bash -ec \
+            'echo "host replication all 0.0.0.0/0 scram-sha-256" >> "$PGDATA/pg_hba.conf"'
+          docker exec lifetra-ha-primary psql -U lifetra -d lifetra -v ON_ERROR_STOP=1 \
+            -c "SELECT pg_reload_conf();"
+
+      - name: Bootstrap physical standby
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --network lifetra-ha \
+            -v lifetra-ha-standby-data:/var/lib/postgresql/data \
+            postgres:17 \
+            bash -ec '
+              chown postgres:postgres /var/lib/postgresql/data
+              exec gosu postgres pg_basebackup \
+                -d "host=lifetra-ha-primary port=5432 user=lifetra password=lifetra application_name=lifetra_standby" \
+                -D /var/lib/postgresql/data \
+                -Fp -Xs -P -R -C -S lifetra_ha_slot
+            '
+
+          docker run -d \
+            --name lifetra-ha-standby \
+            --network lifetra-ha \
+            --network-alias lifetra-ha-standby \
+            -p 55433:5432 \
+            -v lifetra-ha-standby-data:/var/lib/postgresql/data \
+            postgres:17 \
+            postgres -c hot_standby=on
+
+          for attempt in $(seq 1 30); do
+            if docker exec lifetra-ha-standby pg_isready -U lifetra -d lifetra; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "standby did not become ready" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Require synchronous remote-apply replication
+        run: |
+          set -euo pipefail
+          docker exec lifetra-ha-primary psql -U lifetra -d lifetra -v ON_ERROR_STOP=1 \
+            -c "ALTER SYSTEM SET synchronous_standby_names = 'FIRST 1 (lifetra_standby)';" \
+            -c "ALTER SYSTEM SET synchronous_commit = 'remote_apply';" \
+            -c "SELECT pg_reload_conf();"
+
+          for attempt in $(seq 1 30); do
+            state="$(docker exec lifetra-ha-primary psql -U lifetra -d lifetra -Atc \
+              "SELECT state || ':' || sync_state FROM pg_stat_replication WHERE application_name = 'lifetra_standby' LIMIT 1;")"
+            if [ "$state" = "streaming:sync" ]; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "standby never became synchronous; last state=$state" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+
+          test "$(docker exec lifetra-ha-primary psql -U lifetra -d lifetra -Atc 'SHOW synchronous_commit;')" = "remote_apply"
+          echo "synchronous standby is streaming with remote_apply commits"
+
+      - name: Seed fenced state on primary
+        env:
+          LIFETRA_POSTGRES_URL: ${{ env.PRIMARY_DSN }}
+          LIFETRA_HA_PHASE: seed
+        run: cargo run --quiet --example postgres_ha_failover_probe
+
+      - name: Verify committed state on read-only standby
+        env:
+          LIFETRA_POSTGRES_URL: ${{ env.STANDBY_DSN }}
+          LIFETRA_HA_PHASE: standby
+        run: |
+          test "$(docker exec lifetra-ha-standby psql -U lifetra -d lifetra -Atc 'SELECT pg_is_in_recovery();')" = "t"
+          cargo run --quiet --example postgres_ha_failover_probe
+
+      - name: Kill primary and promote standby
+        run: |
+          set -euo pipefail
+          docker kill lifetra-ha-primary
+          docker exec --user postgres lifetra-ha-standby \
+            pg_ctl -D /var/lib/postgresql/data promote -w
+
+          for attempt in $(seq 1 30); do
+            recovery="$(docker exec lifetra-ha-standby psql -U lifetra -d lifetra -Atc 'SELECT pg_is_in_recovery();')"
+            if [ "$recovery" = "f" ]; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "standby was not promoted" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+
+          test "$(docker inspect -f '{{.State.Running}}' lifetra-ha-primary)" = "false"
+          echo "primary is dead and standby is promoted"
+
+      - name: Continue fenced state on promoted leader
+        env:
+          LIFETRA_POSTGRES_URL: ${{ env.STANDBY_DSN }}
+          LIFETRA_HA_PHASE: promoted
+        run: cargo run --quiet --example postgres_ha_failover_probe
+
+      - name: Cleanup HA topology
+        if: always()
+        run: |
+          docker rm -f lifetra-ha-primary lifetra-ha-standby 2>/dev/null || true
+          docker volume rm lifetra-ha-primary-data lifetra-ha-standby-data 2>/dev/null || true
+          docker network rm lifetra-ha 2>/dev/null || true
 
   python-bridge:
     runs-on: ubuntu-latest

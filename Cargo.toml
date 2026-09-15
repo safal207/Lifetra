@@ -17,6 +17,7 @@ members = [
     "crates/lifetra-reflect",
     "crates/lifetra-resonance",
     "crates/lifetra-synergy",
+    "crates/lifetra-bead",
     "bindings/lifetra-py",
 ]
 resolver = "2"
@@ -36,6 +37,7 @@ lifetra-trajectory = { path = "crates/lifetra-trajectory", version = "0.1.0" }
 lifetra-reflect = { path = "crates/lifetra-reflect", version = "0.1.0" }
 lifetra-resonance = { path = "crates/lifetra-resonance", version = "0.1.0" }
 lifetra-synergy = { path = "crates/lifetra-synergy", version = "0.1.0" }
+lifetra-bead = { path = "crates/lifetra-bead", version = "0.1.0" }
 
 [dependencies]
 lifetra-core.workspace = true
@@ -46,3 +48,5 @@ lifetra-trajectory.workspace = true
 lifetra-reflect.workspace = true
 lifetra-resonance.workspace = true
 lifetra-synergy.workspace = true
+lifetra-bead.workspace = true
+postgres = "0.19"

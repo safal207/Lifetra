@@ -9,11 +9,43 @@
 - **Resonance** — how aligned it is internally and with the world
 - **Synergy** — what emerges through interaction and collaboration
 
-This v0.1 foundation provides a clean, composable domain model rather than a full framework. It is intended to be a semantic seed for future simulation, analysis, and higher-level orchestration.
+The stable v0.1 foundation provides a clean, composable domain model. The current unreleased v0.2 work adds proof-carrying trajectory beads for bounded causal analysis and higher-level orchestration.
+
+## Trajectory Bead Graph (experimental v0.2)
+
+The `lifetra-bead` layer adds bounded local realities (“beads”) along a persistent trajectory. A bead can hold sector-local graphs, explicit evidence state, unresolved unknowns, and a proof-gated transition back into `TrajectoryState`.
+
+`BeadChain` connects those local contexts into a linear proof-carrying thread. Verified proof can be carried into the next bead without collapsing uncertainty, and lower-level beads can be aggregated into coarser temporal beads while retaining source-bead and proof provenance.
+
+The top-level orchestration layer also adds proof-backed orientation comparison: `ProvenOrientation` binds an observed movement vector to a verified `BeadCommit`, and `OrientationDelta` compares that proven movement with the intended `OrientationVector`. Intention remains separate from evidence and cannot retroactively change causal truth.
+
+`CorrectionPolicy` closes the first evidence-driven control loop. It converts a proof-backed orientation delta into a bounded proposal for the next intended orientation using proportional gain, per-axis deadband/hysteresis, and a maximum correction step. The correction is a future planning proposal, not evidence about what already happened.
+
+`DecisionAuthority` separates a correction proposal from permission to execute it. A `SafetyEnvelope` can allow bounded automatic execution, require approval, or block the action while preserving proof and approval as separate concepts.
+
+The execution-receipt layer then separates **permission**, **dispatch**, and **externally confirmed effect**. `AuthorityTicket` binds an allowed decision to a stable `ActionId`; `DispatchReceipt` proves that the action crossed the dispatch boundary; and `ExternalExecutionReceipt` resolves the externally observed outcome. Until that final receipt exists, the trace remains explicitly `DispatchedEffectUnknown`.
+
+Core invariants:
+
+- `UNKNOWN != FALSE != FAILURE`;
+- observation does not imply a trajectory commit;
+- proof carry must preserve evidence identity;
+- temporal gaps remain explicit;
+- aggregation may compress context but must not manufacture certainty;
+- intention is not evidence;
+- intended direction may be corrected by proven movement, but cannot rewrite it;
+- correction may influence the next plan, but cannot rewrite proven movement;
+- small control noise can remain inside a deadband rather than forcing oscillation;
+- human approval cannot manufacture missing evidence;
+- permission to execute is not proof that execution occurred;
+- authorized, dispatched, and externally confirmed are separate execution states;
+- missing external acknowledgement is neither success nor failure.
+
+The current linear MVP supports causal zoom across the known temporal order `Minute < Hour < Day < Week`; branching and concurrent threads are left for a later layer. Event and custom beads remain domain-defined. See `docs/trajectory-bead-graph.md`, `docs/orientation-delta.md`, `docs/correction-policy.md`, `docs/safety-authority.md`, `docs/execution-receipts.md`, `examples/bead_chain_zoom.rs`, `examples/orientation_delta_agent.rs`, `examples/correction_control_loop.rs`, `examples/decision_authority_gate.rs`, and `examples/execution_receipt_lifecycle.rs`.
 
 ## Workspace layout
 
-- `lifetra` — top-level crate that re-exports the public API
+- `lifetra` — top-level crate that re-exports the public API and hosts cross-domain orchestration and evidence-driven control primitives
 - `lifetra-core` — foundational primitives such as `EntityId`, `Timestamp`, and `Scalar`
 - `lifetra-entity` — aggregated `EntityState` built from the six domain dimensions
 - `lifetra-causal` — causal links and causal state
@@ -22,6 +54,7 @@ This v0.1 foundation provides a clean, composable domain model rather than a ful
 - `lifetra-reflect` — self-observation and contradictions
 - `lifetra-resonance` — alignment with self, world, and time
 - `lifetra-synergy` — collaborative potential and emergent value
+- `lifetra-bead` — bounded contexts, evidence-gated commits, proof continuity, and causal zoom
 
 ## Example
 

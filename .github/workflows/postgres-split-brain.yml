@@ -1,0 +1,345 @@
+name: PostgreSQL Split-Brain CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - work
+  pull_request:
+
+jobs:
+  postgres-split-brain:
+    runs-on: ubuntu-latest
+    env:
+      LEADER_DSN: postgresql://lifetra:lifetra@localhost:55434/lifetra
+      PRIMARY_DSN: postgresql://lifetra:lifetra@localhost:55432/lifetra
+      STANDBY_DSN: postgresql://lifetra:lifetra@localhost:55433/lifetra
+      REJOIN_DSN: postgresql://lifetra:lifetra@localhost:55435/lifetra
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Start checksummed PostgreSQL primary
+        run: |
+          set -euo pipefail
+          docker network create lifetra-splitbrain
+          docker volume create lifetra-sb-primary-data
+          docker volume create lifetra-sb-standby-data
+          docker run -d \
+            --name lifetra-sb-primary \
+            --network lifetra-splitbrain \
+            --network-alias lifetra-sb-primary \
+            -p 55432:5432 \
+            -e POSTGRES_USER=lifetra \
+            -e POSTGRES_PASSWORD=lifetra \
+            -e POSTGRES_DB=lifetra \
+            -e POSTGRES_INITDB_ARGS=--data-checksums \
+            -v lifetra-sb-primary-data:/var/lib/postgresql/data \
+            postgres:17 \
+            postgres \
+              -c wal_level=replica \
+              -c max_wal_senders=10 \
+              -c max_replication_slots=10 \
+              -c hot_standby=on
+
+          for attempt in $(seq 1 30); do
+            if docker exec lifetra-sb-primary pg_isready -U lifetra -d lifetra; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "primary did not become ready" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker exec lifetra-sb-primary bash -ec \
+            'echo "host replication all 0.0.0.0/0 scram-sha-256" >> "$PGDATA/pg_hba.conf"'
+          docker exec lifetra-sb-primary psql -U lifetra -d lifetra -v ON_ERROR_STOP=1 \
+            -c "SELECT pg_reload_conf();"
+
+      - name: Start stable leader endpoint on primary
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/lifetra-haproxy.cfg" <<'EOF'
+          global
+            log stdout format raw local0
+          defaults
+            log global
+            mode tcp
+            timeout connect 5s
+            timeout client 30s
+            timeout server 30s
+          frontend postgres
+            bind *:5432
+            default_backend postgres_leader
+          backend postgres_leader
+            server leader lifetra-sb-primary:5432 check
+          EOF
+
+          docker run -d \
+            --name lifetra-sb-endpoint \
+            --network lifetra-splitbrain \
+            -p 55434:5432 \
+            -v "$RUNNER_TEMP/lifetra-haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" \
+            haproxy:3.0-alpine
+
+          for attempt in $(seq 1 30); do
+            if docker run --rm --network host postgres:17 \
+              pg_isready -h 127.0.0.1 -p 55434 -U lifetra -d lifetra; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "stable leader endpoint did not reach primary" >&2
+          exit 1
+
+      - name: Bootstrap physical standby
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --network lifetra-splitbrain \
+            -v lifetra-sb-standby-data:/var/lib/postgresql/data \
+            postgres:17 \
+            bash -ec '
+              chown postgres:postgres /var/lib/postgresql/data
+              exec gosu postgres pg_basebackup \
+                -d "host=lifetra-sb-primary port=5432 user=lifetra password=lifetra application_name=lifetra_standby" \
+                -D /var/lib/postgresql/data \
+                -Fp -Xs -P -R -C -S lifetra_sb_slot
+            '
+
+          docker run -d \
+            --name lifetra-sb-standby \
+            --network lifetra-splitbrain \
+            --network-alias lifetra-sb-standby \
+            -p 55433:5432 \
+            -v lifetra-sb-standby-data:/var/lib/postgresql/data \
+            postgres:17 \
+            postgres -c hot_standby=on
+
+          for attempt in $(seq 1 30); do
+            if docker exec lifetra-sb-standby pg_isready -U lifetra -d lifetra; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "standby did not become ready" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Require synchronous remote-apply replication
+        run: |
+          set -euo pipefail
+          docker exec lifetra-sb-primary psql -U lifetra -d lifetra -v ON_ERROR_STOP=1 \
+            -c "ALTER SYSTEM SET synchronous_standby_names = 'FIRST 1 (lifetra_standby)';" \
+            -c "ALTER SYSTEM SET synchronous_commit = 'remote_apply';" \
+            -c "SELECT pg_reload_conf();"
+
+          for attempt in $(seq 1 30); do
+            state="$(docker exec lifetra-sb-primary psql -U lifetra -d lifetra -Atc \
+              "SELECT state || ':' || sync_state FROM pg_stat_replication WHERE application_name = 'lifetra_standby' LIMIT 1;")"
+            if [ "$state" = "streaming:sync" ]; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "standby never became synchronous; last state=$state" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          test "$(docker exec lifetra-sb-primary psql -U lifetra -d lifetra -Atc 'SHOW synchronous_commit;')" = "remote_apply"
+
+      - name: Seed fenced state through stable endpoint
+        env:
+          LIFETRA_POSTGRES_URL: ${{ env.LEADER_DSN }}
+          LIFETRA_SPLIT_BRAIN_PHASE: seed
+        run: cargo run --quiet --example postgres_split_brain_probe
+
+      - name: Verify remote-applied state on standby
+        env:
+          LIFETRA_POSTGRES_URL: ${{ env.STANDBY_DSN }}
+          LIFETRA_SPLIT_BRAIN_PHASE: standby
+        run: |
+          test "$(docker exec lifetra-sb-standby psql -U lifetra -d lifetra -Atc 'SELECT pg_is_in_recovery();')" = "t"
+          cargo run --quiet --example postgres_split_brain_probe
+
+      - name: Power-fence old primary and promote standby
+        run: |
+          set -euo pipefail
+          docker kill lifetra-sb-primary
+          test "$(docker inspect -f '{{.State.Running}}' lifetra-sb-primary)" = "false"
+
+          docker exec --user postgres lifetra-sb-standby \
+            pg_ctl -D /var/lib/postgresql/data promote -w
+          for attempt in $(seq 1 30); do
+            recovery="$(docker exec lifetra-sb-standby psql -U lifetra -d lifetra -Atc 'SELECT pg_is_in_recovery();')"
+            if [ "$recovery" = "f" ]; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "standby was not promoted" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "old primary is power-fenced; standby is promoted"
+
+      - name: Repoint stable leader endpoint to promoted standby
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/lifetra-haproxy.cfg" <<'EOF'
+          global
+            log stdout format raw local0
+          defaults
+            log global
+            mode tcp
+            timeout connect 5s
+            timeout client 30s
+            timeout server 30s
+          frontend postgres
+            bind *:5432
+            default_backend postgres_leader
+          backend postgres_leader
+            server leader lifetra-sb-standby:5432 check
+          EOF
+
+          docker rm -f lifetra-sb-endpoint
+          docker run -d \
+            --name lifetra-sb-endpoint \
+            --network lifetra-splitbrain \
+            -p 55434:5432 \
+            -v "$RUNNER_TEMP/lifetra-haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" \
+            haproxy:3.0-alpine
+
+          for attempt in $(seq 1 30); do
+            if docker run --rm --network host postgres:17 \
+              pg_isready -h 127.0.0.1 -p 55434 -U lifetra -d lifetra; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "stable endpoint did not reach promoted leader" >&2
+          exit 1
+
+      - name: Continue fenced state through unchanged client DSN
+        env:
+          LIFETRA_POSTGRES_URL: ${{ env.LEADER_DSN }}
+          LIFETRA_SPLIT_BRAIN_PHASE: promoted
+        run: |
+          test "$(docker inspect -f '{{.State.Running}}' lifetra-sb-primary)" = "false"
+          cargo run --quiet --example postgres_split_brain_probe
+
+      - name: Rewind fenced old primary before resurrection
+        run: |
+          set -euo pipefail
+          test "$(docker inspect -f '{{.State.Running}}' lifetra-sb-primary)" = "false"
+
+          docker exec lifetra-sb-standby psql -U lifetra -d lifetra -v ON_ERROR_STOP=1 \
+            -c "SELECT pg_create_physical_replication_slot('lifetra_rejoin_slot');"
+
+          docker run --rm \
+            --network lifetra-splitbrain \
+            -v lifetra-sb-primary-data:/var/lib/postgresql/data \
+            postgres:17 \
+            bash -ec '
+              rm -f /var/lib/postgresql/data/postmaster.pid
+              chown -R postgres:postgres /var/lib/postgresql/data
+              gosu postgres pg_rewind \
+                -D /var/lib/postgresql/data \
+                --source-server="host=lifetra-sb-standby port=5432 user=lifetra password=lifetra dbname=lifetra" \
+                -R -P
+              cat >> /var/lib/postgresql/data/postgresql.auto.conf <<"EOF"
+          primary_conninfo = '\''host=lifetra-sb-standby port=5432 user=lifetra password=lifetra application_name=lifetra_rejoined'\''
+          primary_slot_name = '\''lifetra_rejoin_slot'\''
+          EOF
+              touch /var/lib/postgresql/data/standby.signal
+            '
+
+          docker rm lifetra-sb-primary
+          docker run -d \
+            --name lifetra-sb-rejoined \
+            --network lifetra-splitbrain \
+            --network-alias lifetra-sb-rejoined \
+            -p 55435:5432 \
+            -v lifetra-sb-primary-data:/var/lib/postgresql/data \
+            postgres:17 \
+            postgres -c hot_standby=on
+
+          for attempt in $(seq 1 30); do
+            if docker exec lifetra-sb-rejoined pg_isready -U lifetra -d lifetra; then
+              recovery="$(docker exec lifetra-sb-rejoined psql -U lifetra -d lifetra -Atc 'SELECT pg_is_in_recovery();')"
+              if [ "$recovery" = "t" ]; then
+                break
+              fi
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "rewound old primary did not rejoin as standby" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Prove resurrected old primary is read-only standby
+        env:
+          LIFETRA_POSTGRES_URL: ${{ env.REJOIN_DSN }}
+          LIFETRA_SPLIT_BRAIN_PHASE: rejoined
+        run: |
+          set -euo pipefail
+          test "$(docker exec lifetra-sb-rejoined psql -U lifetra -d lifetra -Atc 'SELECT pg_is_in_recovery();')" = "t"
+
+          if docker exec lifetra-sb-rejoined psql -U lifetra -d lifetra -v ON_ERROR_STOP=1 \
+            -c 'CREATE TABLE lifetra_split_brain_violation(id integer);'; then
+            echo "resurrected old primary accepted a write" >&2
+            exit 1
+          fi
+          echo "direct write rejected on rewound old primary"
+
+          for attempt in $(seq 1 30); do
+            state="$(docker exec lifetra-sb-standby psql -U lifetra -d lifetra -Atc \
+              "SELECT state FROM pg_stat_replication WHERE application_name = 'lifetra_rejoined' LIMIT 1;")"
+            if [ "$state" = "streaming" ]; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "rewound old primary did not stream from promoted leader; last state=$state" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+
+          cargo run --quiet --example postgres_split_brain_probe
+
+      - name: Verify stable endpoint still resolves current leader
+        env:
+          LIFETRA_POSTGRES_URL: ${{ env.LEADER_DSN }}
+          LIFETRA_SPLIT_BRAIN_PHASE: leader
+        run: cargo run --quiet --example postgres_split_brain_probe
+
+      - name: Cleanup probe record
+        env:
+          LIFETRA_POSTGRES_URL: ${{ env.LEADER_DSN }}
+          LIFETRA_SPLIT_BRAIN_PHASE: cleanup
+        run: cargo run --quiet --example postgres_split_brain_probe
+
+      - name: Cleanup split-brain topology
+        if: always()
+        run: |
+          docker rm -f \
+            lifetra-sb-endpoint \
+            lifetra-sb-primary \
+            lifetra-sb-standby \
+            lifetra-sb-rejoined 2>/dev/null || true
+          docker volume rm \
+            lifetra-sb-primary-data \
+            lifetra-sb-standby-data 2>/dev/null || true
+          docker network rm lifetra-splitbrain 2>/dev/null || true
