@@ -17,7 +17,11 @@
 - add bounded `CorrectionPolicy` with proportional gain, per-axis hysteresis, deadband, and maximum step;
 - add `CorrectionMemory`, `OrientationAdjustment`, and proof-linked `CorrectionDecision` for the next planning step;
 - keep correction separate from evidence: control can change the next intention but cannot rewrite proven movement;
-- add recovery, bead-chain, orientation-delta, and correction-loop examples plus architecture documentation.
+- add `SafetyEnvelope` and `DecisionAuthority` to separate correction proposals from execution permission;
+- add explicit autonomy levels, three-valued human approval, quorum requirements, soft autonomous limits, and non-overridable hard limits;
+- block insufficient proof even when approval exists, preserving the invariant that authority cannot manufacture evidence;
+- distinguish `Allow(Automatic)`, `Allow(ApprovedManual)`, `RequireApproval`, and `Block` authority outcomes;
+- add recovery, bead-chain, orientation-delta, correction-loop, and authority-gate examples plus architecture documentation.
 
 ## 0.1.0
 
