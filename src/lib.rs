@@ -343,13 +343,15 @@ mod tests {
                 context,
             )
             .expect("redispatch decision");
-        let second = ledger
+        let second_id = ledger
             .record_dispatch(&retry, Timestamp::new(13), "proof:dispatch:attempt:1")
-            .expect("second attempt should record");
+            .expect("second attempt should record")
+            .id
+            .clone();
 
         assert_eq!(ledger.attempts().len(), 2);
-        assert_eq!(second.id.ordinal, 1);
-        assert_eq!(second.id.action_id, ledger.ticket.action_id);
+        assert_eq!(second_id.ordinal, 1);
+        assert_eq!(second_id.action_id, ledger.ticket.action_id);
         assert_eq!(ledger.retry_context().redispatches_used, 1);
         assert_eq!(ledger.binding.key, "idem:attempt-ledger:facade");
     }
