@@ -663,7 +663,10 @@ impl DurableActuatorReceiptBridge {
         Ok(())
     }
 
-    fn validate_journal_identity(&self, journal: &DurableJournal) -> Result<(), ActuatorBridgeError> {
+    fn validate_journal_identity(
+        &self,
+        journal: &DurableJournal,
+    ) -> Result<(), ActuatorBridgeError> {
         if journal.ticket().action_id != self.binding.action_id {
             return Err(ActuatorBridgeError::JournalActionMismatch);
         }
@@ -727,11 +730,11 @@ impl DurableActuatorReceiptBridge {
             return Err(ActuatorBridgeError::RecoveryIdentityMismatch);
         }
         let state = self.recover()?;
-        let prepared = state
-            .latest_prepared(query.attempt_ordinal)
-            .ok_or(ActuatorBridgeError::MissingPreparedCall {
+        let prepared = state.latest_prepared(query.attempt_ordinal).ok_or(
+            ActuatorBridgeError::MissingPreparedCall {
                 ordinal: query.attempt_ordinal,
-            })?;
+            },
+        )?;
         if prepared.permit.owner != query.prepared_owner
             || prepared.permit.fencing_epoch != query.prepared_epoch
         {
@@ -746,10 +749,9 @@ impl DurableActuatorReceiptBridge {
     fn append_event(&mut self, event: &BridgeEvent) -> Result<u64, ActuatorBridgeError> {
         let sequence = self.next_sequence;
         let final_path = self.path.join(format!("{sequence:020}.evt"));
-        let temp_path = self.path.join(format!(
-            ".tmp-{}-{sequence:020}",
-            std::process::id()
-        ));
+        let temp_path = self
+            .path
+            .join(format!(".tmp-{}-{sequence:020}", std::process::id()));
         let payload = encode_event(event);
         let mut file = OpenOptions::new()
             .write(true)
@@ -834,7 +836,9 @@ fn read_records(path: &Path) -> Result<Vec<BridgeRecord>, ActuatorBridgeError> {
     normalize_records(records)
 }
 
-fn binding_from_records(records: &[BridgeRecord]) -> Result<ActuatorBridgeBinding, ActuatorBridgeError> {
+fn binding_from_records(
+    records: &[BridgeRecord],
+) -> Result<ActuatorBridgeBinding, ActuatorBridgeError> {
     let first = records.first().ok_or(ActuatorBridgeError::MissingBinding)?;
     let binding = match &first.event {
         BridgeEvent::Binding(binding) => binding.clone(),
@@ -1067,9 +1071,9 @@ fn encode_receipt_outcome(outcome: &FencedActuatorOutcome) -> (&'static str, u64
             ("F", *current_epoch, 0)
         }
         FencedActuatorOutcome::Rejected(FencedActuatorRejection::WrongOwner) => ("W", 0, 0),
-        FencedActuatorOutcome::Rejected(FencedActuatorRejection::LeaseExpired { current_epoch }) => {
-            ("L", *current_epoch, 0)
-        }
+        FencedActuatorOutcome::Rejected(FencedActuatorRejection::LeaseExpired {
+            current_epoch,
+        }) => ("L", *current_epoch, 0),
         FencedActuatorOutcome::Rejected(FencedActuatorRejection::IdentityConflict) => ("I", 0, 0),
     }
 }
