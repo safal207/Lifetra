@@ -298,10 +298,7 @@ impl<S: RecoveryLeaseStore> RecoveryLeaseManager<S> {
     }
 }
 
-fn expiry_from<E>(
-    now: Timestamp,
-    ttl_seconds: i64,
-) -> Result<Timestamp, RecoveryLeaseBlock<E>> {
+fn expiry_from<E>(now: Timestamp, ttl_seconds: i64) -> Result<Timestamp, RecoveryLeaseBlock<E>> {
     if ttl_seconds <= 0 {
         return Err(LeaseConfigBlock::InvalidTtl.into());
     }
@@ -478,7 +475,10 @@ impl RecoveryLeaseStore for InMemoryRecoveryLeaseStore {
     type Error = InMemoryLeaseError;
 
     fn load(&self, action_id: &ActionId) -> Result<Option<RecoveryLease>, Self::Error> {
-        let guard = self.inner.lock().map_err(|_| InMemoryLeaseError::Poisoned)?;
+        let guard = self
+            .inner
+            .lock()
+            .map_err(|_| InMemoryLeaseError::Poisoned)?;
         Ok(guard.get(action_id.as_str()).cloned())
     }
 
@@ -488,7 +488,10 @@ impl RecoveryLeaseStore for InMemoryRecoveryLeaseStore {
         expected: Option<LeaseVersion>,
         replacement: RecoveryLease,
     ) -> Result<bool, Self::Error> {
-        let mut guard = self.inner.lock().map_err(|_| InMemoryLeaseError::Poisoned)?;
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| InMemoryLeaseError::Poisoned)?;
         let current_version = guard.get(action_id.as_str()).map(|lease| lease.version);
         if current_version != expected {
             return Ok(false);
@@ -506,9 +509,7 @@ mod tests {
 
     use lifetra_bead::BeadId;
 
-    use crate::{
-        AuthorityTicket, ExecutionMode, IdempotencyBinding, RetryReason,
-    };
+    use crate::{AuthorityTicket, ExecutionMode, IdempotencyBinding, RetryReason};
 
     use super::*;
 
@@ -564,7 +565,10 @@ mod tests {
             .expect("worker a acquires");
 
         let blocked = b.acquire(&action, worker("worker-b"), Timestamp::new(110), 30);
-        assert!(matches!(blocked, Err(RecoveryLeaseBlock::LeaseHeld { epoch: 1, .. })));
+        assert!(matches!(
+            blocked,
+            Err(RecoveryLeaseBlock::LeaseHeld { epoch: 1, .. })
+        ));
         assert_eq!(token.epoch, 1);
     }
 
@@ -625,7 +629,11 @@ mod tests {
         )
         .expect("worker a acquires");
         let permit = fenced
-            .prepare_attempt(&initial_decision(), Timestamp::new(101), Timestamp::new(101))
+            .prepare_attempt(
+                &initial_decision(),
+                Timestamp::new(101),
+                Timestamp::new(101),
+            )
             .expect("prepared under current fence");
 
         let takeover = RecoveryLeaseManager::new(store)
@@ -668,7 +676,11 @@ mod tests {
         )
         .expect("acquire");
         let permit = fenced
-            .prepare_attempt(&initial_decision(), Timestamp::new(101), Timestamp::new(101))
+            .prepare_attempt(
+                &initial_decision(),
+                Timestamp::new(101),
+                Timestamp::new(101),
+            )
             .expect("prepare");
 
         assert_eq!(permit.fencing_epoch, 1);
