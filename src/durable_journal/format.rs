@@ -309,11 +309,11 @@ fn encode_string(value: &str) -> String {
 }
 
 fn decode_string(value: &str) -> Result<String, JournalError> {
-    if value.len() % 2 != 0 {
+    if !value.len().is_multiple_of(2) {
         return Err(JournalError::InvalidHex);
     }
     let mut bytes = Vec::with_capacity(value.len() / 2);
-    for chunk in value.as_bytes().chunks_exact(2) {
+    for chunk in value.as_bytes().as_chunks::<2>().0 {
         let pair = std::str::from_utf8(chunk).map_err(|_| JournalError::InvalidHex)?;
         bytes.push(u8::from_str_radix(pair, 16).map_err(|_| JournalError::InvalidHex)?);
     }
