@@ -40,7 +40,11 @@
 - keep provider observations separate from local dispatch receipts, including proof-backed ordinal gaps after externally resolved prepared attempts;
 - require provider observations to be durably recorded before returning retry permission, while adapter failures leave journal history unchanged;
 - keep generic timeout, silence, or not-found semantics at `StillUnknown` unless provider evidence actually establishes `NoEffectConfirmed`;
-- add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, reconciliation-retry, attempt-ledger, durable-journal, and provider-reconciliation examples plus architecture documentation.
+- add CAS-backed `RecoveryLeaseStore`, monotonic `FencingToken` epochs, lease renewal revisions, and `RecoveryLeaseManager` for split-brain recovery authority;
+- add `FencedAttemptPermit` and `FencedDurableJournal` so stale epochs cannot continue mutating through the fenced runtime after a newer owner acquires the action;
+- keep lease timeout distinct from proof that the old process stopped, and require downstream resources to enforce fencing epochs for end-to-end stale-worker rejection;
+- include `InMemoryRecoveryLeaseStore` only as a process-local test/example CAS backend, while production multi-worker deployments require a shared atomic lease store and authoritative lease time;
+- add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, reconciliation-retry, attempt-ledger, durable-journal, provider-reconciliation, and recovery-lease-fencing examples plus architecture documentation.
 
 ## 0.1.0
 
