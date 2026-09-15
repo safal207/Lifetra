@@ -55,7 +55,13 @@
 - project positive actuator evidence as external success when local dispatch exists or reconciliation success when it does not, without fabricating a `DispatchReceipt`;
 - keep rejected/unknown actuator observations at `StillUnknown` so rejection never silently becomes `NoEffectConfirmed` or retry permission;
 - allow positive durable actuator evidence to become `EvidenceRef::Supported` for a later trajectory bead, closing the external-proof loop without rewriting past bead knowledge;
-- add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, reconciliation-retry, attempt-ledger, durable-journal, provider-reconciliation, recovery-lease-fencing, fenced-actuator, and actuator-receipt-bridge examples plus architecture documentation.
+- add provider-neutral `UnifiedFencedStore` and `UnifiedFencedRuntime` so operation binding, lease/fencing authority, physical-attempt intent, external evidence, and bead-projection markers can live in one CAS-versioned action record;
+- commit positive external evidence and its projection marker in the same record replacement, eliminating the local receipt-to-projection gap inside the unified store;
+- keep current execution authority separate from evidence admission: a stale epoch cannot create new execution intent, while a valid late receipt from a prior epoch may still be preserved as evidence about the past;
+- preserve reconciliation-first semantics for rejected/unknown receipts and require explicit retry-proof lineage before a later attempt is prepared;
+- expose record-level CAS contention instead of partially applying only a lease, attempt, evidence, or projection subset;
+- include `InMemoryUnifiedFencedStore` only as a process-local atomic reference backend and keep arbitrary external side effects outside the store transaction unless the provider shares the same transactional substrate;
+- add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, reconciliation-retry, attempt-ledger, durable-journal, provider-reconciliation, recovery-lease-fencing, fenced-actuator, actuator-receipt-bridge, and unified-fenced-store examples plus architecture documentation.
 
 ## 0.1.0
 
