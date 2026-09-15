@@ -21,6 +21,10 @@ The top-level orchestration layer also adds proof-backed orientation comparison:
 
 `CorrectionPolicy` closes the first evidence-driven control loop. It converts a proof-backed orientation delta into a bounded proposal for the next intended orientation using proportional gain, per-axis deadband/hysteresis, and a maximum correction step. The correction is a future planning proposal, not evidence about what already happened.
 
+`DecisionAuthority` separates a correction proposal from permission to execute it. A `SafetyEnvelope` can allow bounded automatic execution, require approval, or block the action while preserving proof and approval as separate concepts.
+
+The execution-receipt layer then separates **permission**, **dispatch**, and **externally confirmed effect**. `AuthorityTicket` binds an allowed decision to a stable `ActionId`; `DispatchReceipt` proves that the action crossed the dispatch boundary; and `ExternalExecutionReceipt` resolves the externally observed outcome. Until that final receipt exists, the trace remains explicitly `DispatchedEffectUnknown`.
+
 Core invariants:
 
 - `UNKNOWN != FALSE != FAILURE`;
@@ -31,9 +35,13 @@ Core invariants:
 - intention is not evidence;
 - intended direction may be corrected by proven movement, but cannot rewrite it;
 - correction may influence the next plan, but cannot rewrite proven movement;
-- small control noise can remain inside a deadband rather than forcing oscillation.
+- small control noise can remain inside a deadband rather than forcing oscillation;
+- human approval cannot manufacture missing evidence;
+- permission to execute is not proof that execution occurred;
+- authorized, dispatched, and externally confirmed are separate execution states;
+- missing external acknowledgement is neither success nor failure.
 
-The current linear MVP supports causal zoom across the known temporal order `Minute < Hour < Day < Week`; branching and concurrent threads are left for a later layer. Event and custom beads remain domain-defined. See `docs/trajectory-bead-graph.md`, `docs/orientation-delta.md`, `docs/correction-policy.md`, `examples/bead_chain_zoom.rs`, `examples/orientation_delta_agent.rs`, and `examples/correction_control_loop.rs`.
+The current linear MVP supports causal zoom across the known temporal order `Minute < Hour < Day < Week`; branching and concurrent threads are left for a later layer. Event and custom beads remain domain-defined. See `docs/trajectory-bead-graph.md`, `docs/orientation-delta.md`, `docs/correction-policy.md`, `docs/safety-authority.md`, `docs/execution-receipts.md`, `examples/bead_chain_zoom.rs`, `examples/orientation_delta_agent.rs`, `examples/correction_control_loop.rs`, `examples/decision_authority_gate.rs`, and `examples/execution_receipt_lifecycle.rs`.
 
 ## Workspace layout
 
