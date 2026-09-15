@@ -5,10 +5,11 @@
 //! resonance, synergy, bounded trajectory beads, proof-carrying bead chains,
 //! proof-backed orientation deltas, bounded correction policies, decision authority,
 //! identity-preserving execution receipts, reconciliation-gated retry authority,
-//! and append-only physical attempt ledgers.
+//! append-only physical attempt ledgers, and fsync-backed durable recovery journals.
 
 mod attempt_ledger;
 mod correction_policy;
+mod durable_journal;
 mod execution_receipt;
 mod orientation_delta;
 mod reconciliation;
@@ -20,6 +21,9 @@ pub use attempt_ledger::{
 };
 pub use correction_policy::{
     CorrectionBlock, CorrectionDecision, CorrectionMemory, CorrectionPolicy, OrientationAdjustment,
+};
+pub use durable_journal::{
+    DurableJournal, JournalError, PreparedAttempt, RecoveredRuntime, RecoveryDirective,
 };
 pub use execution_receipt::{
     ActionId, AuthorityTicket, DispatchReceipt, ExecutionBlock, ExecutionOutcome, ExecutionStatus,
