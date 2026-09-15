@@ -78,6 +78,13 @@
 - add a CI restart probe that seeds an action and fencing lease, restarts the same PostgreSQL service container, reconnects from a new process, and verifies the durable binding/revision/epoch survive;
 - keep the restart result scoped to single-node restart durability and reconnect behavior rather than claiming replicated PostgreSQL HA/failover;
 - add `docs/postgres-network-fault-recovery.md` and `examples/postgres_restart_probe.rs` for the real network/restart evidence;
+- add a dedicated PostgreSQL HA CI topology with a real primary, `pg_basebackup` physical standby, replication slot, and synchronous streaming state;
+- require `synchronous_commit=remote_apply` and a synchronous standby before seeding Lifetra state, so the tested acknowledged record is already applied on the standby;
+- persist a stable action binding, fencing epoch, and prepared attempt on the primary, then prove that exact state is readable from the standby before primary loss;
+- kill the primary, promote the standby, and successfully renew the same application fencing epoch on the promoted leader, preserving attempt history while advancing lease and record revisions;
+- keep database leadership distinct from application authority: promotion does not mint a new Lifetra fencing epoch by itself;
+- scope the result to the tested synchronous two-node topology: automatic election, stable client endpoint routing, old-primary STONITH/rejoin, cross-host clock skew, multi-standby quorum, and an RTO SLA remain future work;
+- add `docs/postgres-ha-failover.md` and `examples/postgres_ha_failover_probe.rs` for synchronous failover evidence;
 - add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, reconciliation-retry, attempt-ledger, durable-journal, provider-reconciliation, recovery-lease-fencing, fenced-actuator, actuator-receipt-bridge, unified-fenced-store, and postgres-unified-store examples plus architecture documentation.
 
 ## 0.1.0
