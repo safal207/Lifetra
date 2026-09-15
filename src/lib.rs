@@ -6,12 +6,14 @@
 //! proof-backed orientation deltas, bounded correction policies, decision authority,
 //! identity-preserving execution receipts, reconciliation-gated retry authority,
 //! append-only physical attempt ledgers, fsync-backed durable recovery journals,
-//! provider-neutral reconciliation adapters, and recovery-lease fencing.
+//! provider-neutral reconciliation adapters, recovery-lease fencing, and
+//! downstream fenced actuators.
 
 mod attempt_ledger;
 mod correction_policy;
 mod durable_journal;
 mod execution_receipt;
+mod fenced_actuator;
 mod orientation_delta;
 mod provider_reconciliation;
 mod reconciliation;
@@ -32,6 +34,12 @@ pub use durable_journal::{
 pub use execution_receipt::{
     ActionId, AuthorityTicket, DispatchReceipt, ExecutionBlock, ExecutionOutcome, ExecutionStatus,
     ExecutionTrace, ExternalExecutionReceipt,
+};
+pub use fenced_actuator::{
+    FencedActuatorAdapter, FencedActuatorConfigBlock, FencedActuatorController, FencedActuatorError,
+    FencedActuatorOutcome, FencedActuatorReceipt, FencedActuatorRejection, FencedActuatorRequest,
+    InMemoryActuatorAuthority, InMemoryAppliedEffect, InMemoryFencedActuator,
+    InMemoryFencedActuatorError,
 };
 pub use lifetra_bead::{
     AggregationBlock, BeadAggregate, BeadChain, BeadCommit, BeadId, BeadScale, ChainBlock,
@@ -362,5 +370,33 @@ mod tests {
         assert_eq!(second_id.action_id, ledger.ticket.action_id);
         assert_eq!(ledger.retry_context().redispatches_used, 1);
         assert_eq!(ledger.binding.key, "idem:attempt-ledger:facade");
+    }
+
+    #[test]
+    fn facade_exposes_downstream_fenced_actuator() {
+        let action_id = ActionId::new("action:actuator:facade").expect("action");
+        let owner = RecoveryWorkerId::new("worker:facade").expect("owner");
+        let permit = FencedAttemptPermit {
+            action_id: action_id.clone(),
+            owner: owner.clone(),
+            fencing_epoch: 3,
+            attempt_ordinal: 0,
+            idempotency_key: "idem:actuator:facade".into(),
+        };
+        let actuator = InMemoryFencedActuator::default();
+        actuator.set_time(Timestamp::new(10)).expect("time");
+        actuator
+            .install_authority(InMemoryActuatorAuthority {
+                action_id,
+                owner,
+                epoch: 3,
+                expires_at: Timestamp::new(20),
+            })
+            .expect("authority");
+
+        let receipt = FencedActuatorController
+            .execute(&permit, "op:actuator:facade", &actuator)
+            .expect("fenced apply");
+        assert_eq!(receipt.outcome, FencedActuatorOutcome::Applied);
     }
 }
