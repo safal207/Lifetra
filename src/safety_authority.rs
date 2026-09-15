@@ -164,10 +164,7 @@ impl DecisionAuthority {
         }
 
         if self.envelope.autonomy == AutonomyLevel::ObserveOnly {
-            return base(
-                AuthorityVerdict::Block,
-                vec![AuthorityReason::ObserveOnly],
-            );
+            return base(AuthorityVerdict::Block, vec![AuthorityReason::ObserveOnly]);
         }
 
         let quorum_pending = context.quorum_approvals < self.envelope.quorum_required;
@@ -260,17 +257,11 @@ mod tests {
                 proof_refs: Vec::new(),
             }
         } else {
-            ProvenOrientation::from_commit(
-                OrientationVector::new(0.2, 0.5, 0.5, 0.5),
-                &commit,
-            )
-            .expect("commit carries proof")
+            ProvenOrientation::from_commit(OrientationVector::new(0.2, 0.5, 0.5, 0.5), &commit)
+                .expect("commit carries proof")
         };
 
-        let delta = OrientationDelta::between(
-            OrientationVector::new(0.9, 0.5, 0.5, 0.5),
-            proven,
-        );
+        let delta = OrientationDelta::between(OrientationVector::new(0.9, 0.5, 0.5, 0.5), proven);
         let policy = CorrectionPolicy::new(1.0, 0.01, 0.0, max_step).expect("valid policy");
         policy
             .propose(&delta, CorrectionMemory::default())
@@ -391,15 +382,9 @@ mod tests {
     #[test]
     fn quorum_is_independent_from_human_approval() {
         let correction = correction_with(1, 0.05);
-        let envelope = SafetyEnvelope::new(
-            AutonomyLevel::BoundedAutomatic,
-            1,
-            2,
-            false,
-            0.10,
-            0.25,
-        )
-        .expect("valid envelope");
+        let envelope =
+            SafetyEnvelope::new(AutonomyLevel::BoundedAutomatic, 1, 2, false, 0.10, 0.25)
+                .expect("valid envelope");
         let authority = DecisionAuthority::new(envelope);
 
         let pending = authority.evaluate(
