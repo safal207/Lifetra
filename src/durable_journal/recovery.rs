@@ -140,10 +140,9 @@ pub(super) fn replay_events(events: &[JournalEvent]) -> Result<RecoveredRuntime,
                         .iter()
                         .any(|attempt| attempt.id.ordinal == *ordinal);
                 if prepared_only {
-                    if let Some(previous) = latest_prepared_reconciliation(
-                        &prepared_reconciliations,
-                        *ordinal,
-                    ) {
+                    if let Some(previous) =
+                        latest_prepared_reconciliation(&prepared_reconciliations, *ordinal)
+                    {
                         if *observed_at < previous.observed_at {
                             return Err(JournalError::ReconciliationBeforePreparation);
                         }
@@ -233,15 +232,14 @@ fn recovery_directive(
                 })
         {
             return match resolution.outcome {
-                ReconciliationOutcome::EffectSucceeded => {
-                    RecoveryDirective::CloseSucceeded {
+                ReconciliationOutcome::EffectSucceeded => RecoveryDirective::CloseSucceeded {
+                    ordinal: latest_ordinal,
+                },
+                ReconciliationOutcome::EffectFailed | ReconciliationOutcome::NoEffectConfirmed => {
+                    RecoveryDirective::EvaluateRetry {
                         ordinal: latest_ordinal,
                     }
                 }
-                ReconciliationOutcome::EffectFailed
-                | ReconciliationOutcome::NoEffectConfirmed => RecoveryDirective::EvaluateRetry {
-                    ordinal: latest_ordinal,
-                },
                 ReconciliationOutcome::StillUnknown => {
                     RecoveryDirective::ReconcilePreparedAttempt {
                         ordinal: latest_ordinal,
