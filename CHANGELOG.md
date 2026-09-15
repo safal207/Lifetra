@@ -72,6 +72,12 @@
 - reconcile ambiguous COMMIT acknowledgement through durable revision/payload state, distinguishing `Applied`, `NotApplied`, `Contended`, and fail-closed `Unknown`;
 - keep a superseded ambiguous COMMIT at `Unknown` rather than using a later revision as proof of whether the older write committed;
 - add deterministic SQLSTATE fault classification tests plus PostgreSQL-backed commit-outcome recovery tests;
+- add a test-only TCP PostgreSQL fault proxy that cuts a connection before COMMIT and at the exact post-COMMIT `CommandComplete("COMMIT")` boundary;
+- require the post-COMMIT fault to observe exact frontend `Query("COMMIT")` and backend `CommandComplete("COMMIT")` protocol frames before dropping the acknowledgement, preventing timing-based false commit evidence;
+- verify on a live PostgreSQL 17 service that pre-COMMIT connection loss retries a fresh whole transaction while post-COMMIT acknowledgement loss reconciles the already durable replacement instead of replaying it blindly;
+- add a CI restart probe that seeds an action and fencing lease, restarts the same PostgreSQL service container, reconnects from a new process, and verifies the durable binding/revision/epoch survive;
+- keep the restart result scoped to single-node restart durability and reconnect behavior rather than claiming replicated PostgreSQL HA/failover;
+- add `docs/postgres-network-fault-recovery.md` and `examples/postgres_restart_probe.rs` for the real network/restart evidence;
 - add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, reconciliation-retry, attempt-ledger, durable-journal, provider-reconciliation, recovery-lease-fencing, fenced-actuator, actuator-receipt-bridge, unified-fenced-store, and postgres-unified-store examples plus architecture documentation.
 
 ## 0.1.0
