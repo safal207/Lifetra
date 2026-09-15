@@ -121,7 +121,7 @@ impl PostgresUnifiedFencedStore {
             (None, None) => Ok(PostgresCommitResolution::NotApplied),
             (None, Some(record)) if record == *replacement => Ok(PostgresCommitResolution::Applied),
             (None, Some(_)) => Ok(PostgresCommitResolution::Contended),
-            (Some(expected), Some(record)) if record == *replacement => {
+            (Some(_), Some(record)) if record == *replacement => {
                 Ok(PostgresCommitResolution::Applied)
             }
             (Some(expected), Some(record)) if record.revision == expected => {
@@ -1122,6 +1122,102 @@ mod tests {
             UnifiedRuntimeDirective::CloseSucceeded { .. }
         ));
         runtime.store().delete_action(&ticket.action_id).ok();
+    }
+
+    #[test]
+    fn lost_commit_ack_reconciles_exact_applied_replacement() {
+        let Some((runtime, ticket, _)) = runtime("commit-ack") else {
+            return;
+        };
+        let store = runtime.store().clone();
+        let current = store.load(&ticket.action_id).expect("load").expect("row");
+        let mut replacement = current.clone();
+        replacement.revision += 1;
+        replacement.lease = Some(UnifiedLeaseAuthority {
+            owner: RecoveryWorkerId::new("worker-commit-ack").expect("worker"),
+            epoch: 1,
+            revision: 0,
+            expires_at: Timestamp::new(i64::MAX / 4),
+        });
+        assert!(store
+            .compare_and_swap(
+                &ticket.action_id,
+                Some(current.revision),
+                replacement.clone(),
+            )
+            .expect("commit"));
+
+        // The state comparison models a lost COMMIT acknowledgement: the caller
+        // ignores the acknowledgement and asks PostgreSQL what durable state won.
+        assert_eq!(
+            store
+                .resolve_commit_outcome(&ticket.action_id, Some(current.revision), &replacement,)
+                .expect("reconcile"),
+            PostgresCommitResolution::Applied
+        );
+        store.delete_action(&ticket.action_id).ok();
+    }
+
+    #[test]
+    fn absent_commit_is_confirmed_not_applied_before_retry() {
+        let Some((runtime, ticket, _)) = runtime("commit-not-applied") else {
+            return;
+        };
+        let store = runtime.store().clone();
+        let current = store.load(&ticket.action_id).expect("load").expect("row");
+        let mut replacement = current.clone();
+        replacement.revision += 1;
+        replacement.lease = Some(UnifiedLeaseAuthority {
+            owner: RecoveryWorkerId::new("worker-not-applied").expect("worker"),
+            epoch: 1,
+            revision: 0,
+            expires_at: Timestamp::new(i64::MAX / 4),
+        });
+        assert_eq!(
+            store
+                .resolve_commit_outcome(&ticket.action_id, Some(current.revision), &replacement,)
+                .expect("reconcile"),
+            PostgresCommitResolution::NotApplied
+        );
+        store.delete_action(&ticket.action_id).ok();
+    }
+
+    #[test]
+    fn superseded_revision_keeps_old_commit_outcome_unknown() {
+        let Some((runtime, ticket, _)) = runtime("commit-superseded") else {
+            return;
+        };
+        let store = runtime.store().clone();
+        let current = store.load(&ticket.action_id).expect("load").expect("row");
+        let mut first = current.clone();
+        first.revision += 1;
+        first.lease = Some(UnifiedLeaseAuthority {
+            owner: RecoveryWorkerId::new("worker-superseded").expect("worker"),
+            epoch: 1,
+            revision: 0,
+            expires_at: Timestamp::new(i64::MAX / 4),
+        });
+        assert!(store
+            .compare_and_swap(&ticket.action_id, Some(current.revision), first.clone())
+            .expect("first commit"));
+
+        let observed = store.load(&ticket.action_id).expect("reload").expect("row");
+        let mut later = observed.clone();
+        later.revision += 1;
+        later.lease.as_mut().expect("lease").revision += 1;
+        assert!(store
+            .compare_and_swap(&ticket.action_id, Some(observed.revision), later)
+            .expect("later commit"));
+
+        assert_eq!(
+            store
+                .resolve_commit_outcome(&ticket.action_id, Some(current.revision), &first)
+                .expect("reconcile"),
+            PostgresCommitResolution::Unknown {
+                observed_revision: Some(2)
+            }
+        );
+        store.delete_action(&ticket.action_id).ok();
     }
 
     #[test]
