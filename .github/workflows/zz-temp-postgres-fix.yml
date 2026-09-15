@@ -1,0 +1,54 @@
+name: temporary postgres migration fix
+
+on:
+  push:
+    branches:
+      - feat/trajectory-bead-graph
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/trajectory-bead-graph
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Patch migration race
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/postgres_unified_store.rs')
+          text = p.read_text()
+          text = text.replace(
+              '    FencedActuatorRejection, FencedAttemptPermit, IdempotencyBinding, ReconciliationOutcome,\n    RecoveryWorkerId, RetryDecision, RetryVerdict,\n',
+              '    FencedActuatorRejection, FencedAttemptPermit, IdempotencyBinding, RecoveryWorkerId,\n    RetryDecision, RetryVerdict,\n'
+          )
+          old = '''    pub fn migrate(&self) -> Result<(), PostgresUnifiedStoreError> {\n        let mut client = self.connect()?;\n        client.batch_execute(&format!(\n            "CREATE TABLE IF NOT EXISTS {} (\\\n                action_id TEXT PRIMARY KEY,\\\n                revision BIGINT NOT NULL CHECK (revision >= 0),\\\n                payload TEXT NOT NULL,\\\n                updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()\\\n            )",\n            quoted_identifier(&self.table)\n        ))?;\n        Ok(())\n    }\n'''
+          new = '''    pub fn migrate(&self) -> Result<(), PostgresUnifiedStoreError> {\n        let mut client = self.connect()?;\n        let mut tx = client.transaction()?;\n        // PostgreSQL can still race in system catalogs when multiple sessions run\n        // CREATE TABLE IF NOT EXISTS for the same new relation concurrently. Serialize\n        // this tiny DDL boundary across Lifetra starters; the lock is released at commit.\n        let migration_lock: i64 = 0x4c49_4645_5452_4101;\n        tx.query_one("SELECT pg_advisory_xact_lock($1)", &[&migration_lock])?;\n        tx.batch_execute(&format!(\n            "CREATE TABLE IF NOT EXISTS {} (\\\n                action_id TEXT PRIMARY KEY,\\\n                revision BIGINT NOT NULL CHECK (revision >= 0),\\\n                payload TEXT NOT NULL,\\\n                updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()\\\n            )",\n            quoted_identifier(&self.table)\n        ))?;\n        tx.commit()?;\n        Ok(())\n    }\n'''
+          if old not in text:
+              raise SystemExit('migrate block not found')
+          text = text.replace(old, new)
+          text = text.replace(
+              '        ExecutionMode, FencedActuatorOutcome, FencedActuatorRequest, ReconciliationOutcome,\n        RetryReason, RetryVerdict, UnifiedFencedStore,\n',
+              '        ExecutionMode, FencedActuatorOutcome, FencedActuatorRequest, ReconciliationOutcome,\n        RetryReason, RetryVerdict, UnifiedFencedStore,\n'
+          )
+          p.write_text(text)
+          PY
+          cargo fmt --all
+      - name: Commit patch
+        run: |
+          if git diff --quiet; then
+            echo "No patch required"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/postgres_unified_store.rs
+          git commit -m "fix: serialize PostgreSQL schema migration"
+          git push origin HEAD:feat/trajectory-bead-graph
