@@ -4,11 +4,12 @@
 //! of ideas and entities across causality, orientation, trajectory, reflection,
 //! resonance, synergy, bounded trajectory beads, proof-carrying bead chains,
 //! proof-backed orientation deltas, bounded correction policies, decision authority,
-//! and identity-preserving execution receipts.
+//! identity-preserving execution receipts, and reconciliation-gated retry authority.
 
 mod correction_policy;
 mod execution_receipt;
 mod orientation_delta;
+mod reconciliation;
 mod safety_authority;
 
 pub use correction_policy::{
@@ -32,6 +33,10 @@ pub use lifetra_resonance::ResonanceState;
 pub use lifetra_synergy::SynergyState;
 pub use lifetra_trajectory::{LifecycleStage, StateTransition, TrajectoryState};
 pub use orientation_delta::{OrientationBlock, OrientationDelta, ProvenOrientation};
+pub use reconciliation::{
+    IdempotencyBinding, ReconciliationOutcome, ReconciliationReceipt, RetryAuthority, RetryBlock,
+    RetryContext, RetryDecision, RetryPolicy, RetryReason, RetryVerdict,
+};
 pub use safety_authority::{
     ApprovalState, AuthorityContext, AuthorityDecision, AuthorityReason, AuthorityVerdict,
     AutonomyLevel, DecisionAuthority, ExecutionMode, SafetyConfigBlock, SafetyEnvelope,
@@ -248,6 +253,43 @@ mod tests {
         assert_eq!(
             trace.status(),
             ExecutionStatus::EffectConfirmed(ExecutionOutcome::Succeeded)
+        );
+    }
+
+    #[test]
+    fn facade_exposes_reconciliation_gated_retry_authority() {
+        let ticket = AuthorityTicket {
+            action_id: ActionId::new("action:retry:facade").expect("valid action id"),
+            source_bead: BeadId::new("bead:retry:facade"),
+            execution_mode: ExecutionMode::Automatic,
+            authority_proof_refs: vec!["proof:authority:facade".into()],
+            issued_at: Timestamp::new(10),
+        };
+        let binding = IdempotencyBinding::new(&ticket, "idem:retry:facade").expect("valid key");
+        let mut trace = ExecutionTrace::new(ticket);
+        trace
+            .record_dispatch(Timestamp::new(11), "proof:dispatch:facade")
+            .expect("dispatch should record");
+
+        let authority = RetryAuthority::new(RetryPolicy::new(1, false, true));
+        let before = authority
+            .evaluate(&trace, &binding, None, RetryContext::default())
+            .expect("valid evaluation");
+        assert_eq!(before.verdict, RetryVerdict::ReconcileFirst);
+
+        let receipt = ReconciliationReceipt::new(
+            trace.ticket.action_id.clone(),
+            Timestamp::new(12),
+            ReconciliationOutcome::NoEffectConfirmed,
+            "proof:reconcile:facade",
+        )
+        .expect("valid reconciliation receipt");
+        let after = authority
+            .evaluate(&trace, &binding, Some(&receipt), RetryContext::default())
+            .expect("valid evaluation");
+        assert_eq!(
+            after.verdict,
+            RetryVerdict::RedispatchAllowed { ordinal: 1 }
         );
     }
 }
