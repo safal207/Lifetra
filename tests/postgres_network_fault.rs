@@ -44,13 +44,8 @@ impl PostgresFaultProxy {
                         let fault_available = Arc::clone(&fault_thread);
                         let injected = Arc::clone(&injected_thread);
                         thread::spawn(move || {
-                            let _ = handle_connection(
-                                client,
-                                &target,
-                                mode,
-                                fault_available,
-                                injected,
-                            );
+                            let _ =
+                                handle_connection(client, &target, mode, fault_available, injected);
                         });
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -232,16 +227,13 @@ fn seed_action(
         authority_proof_refs: vec!["proof:postgres-network:authority".into()],
         issued_at: Timestamp::new(10),
     };
-    let binding = IdempotencyBinding::new(&ticket, format!("idem:{suffix}"))
-        .expect("idempotency binding");
+    let binding =
+        IdempotencyBinding::new(&ticket, format!("idem:{suffix}")).expect("idempotency binding");
     let runtime = PostgresUnifiedFencedRuntime::new(store.clone());
     runtime
         .create_action(&ticket, &binding, format!("operation:{suffix}"))
         .expect("create action");
-    let current = store
-        .load(&action_id)
-        .expect("load")
-        .expect("seed row");
+    let current = store.load(&action_id).expect("load").expect("seed row");
     (store, ticket, current)
 }
 
@@ -267,8 +259,8 @@ fn real_commit_ack_loss_reconciles_durable_replacement() {
     };
     let (direct, ticket, current) = seed_action(&dsn, "commit-ack-drop");
     let replacement = lease_replacement(&current, "worker-commit-ack-drop");
-    let proxy = PostgresFaultProxy::start(target, ProxyFaultMode::DropCommitAckOnce)
-        .expect("fault proxy");
+    let proxy =
+        PostgresFaultProxy::start(target, ProxyFaultMode::DropCommitAckOnce).expect("fault proxy");
     let proxy_dsn = proxy.dsn(&dsn).expect("proxy dsn");
     let proxied = PostgresUnifiedFencedStore::new(proxy_dsn)
         .with_retry_policy(PostgresTransactionRetryPolicy::new(2));
