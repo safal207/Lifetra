@@ -336,7 +336,11 @@ fn validate_database_transition(
         if attempts_changed || evidence_changed || projections_changed {
             return Err(PostgresUnifiedStoreError::InvalidTransition);
         }
-        return validate_lease_transition(current.lease.as_ref(), replacement.lease.as_ref(), db_now);
+        return validate_lease_transition(
+            current.lease.as_ref(),
+            replacement.lease.as_ref(),
+            db_now,
+        );
     }
 
     if attempts_changed {
@@ -386,7 +390,9 @@ fn validate_lease_transition(
         }
         (Some(old), Some(next)) if next.epoch == old.epoch.saturating_add(1) => {
             if old.expires_at > db_now {
-                return Err(PostgresUnifiedStoreError::DatabaseLeaseNotExpired { epoch: old.epoch });
+                return Err(PostgresUnifiedStoreError::DatabaseLeaseNotExpired {
+                    epoch: old.epoch,
+                });
             }
             if next.revision != 0 || next.expires_at <= db_now {
                 return Err(PostgresUnifiedStoreError::InvalidTransition);
@@ -510,13 +516,15 @@ fn encode_record(record: &UnifiedActionRecord) -> String {
 
 fn decode_record(payload: &str) -> Result<UnifiedActionRecord, PostgresUnifiedStoreError> {
     let mut lines = payload.lines();
-    let bind = lines.next().ok_or(PostgresUnifiedStoreError::InvalidRecord)?;
+    let bind = lines
+        .next()
+        .ok_or(PostgresUnifiedStoreError::InvalidRecord)?;
     let fields: Vec<&str> = bind.split('\t').collect();
     if fields.len() != 6 || fields[0] != CODEC_VERSION || fields[1] != "BIND" {
         return Err(PostgresUnifiedStoreError::InvalidRecord);
     }
-    let action_id = ActionId::new(unhex(fields[2])?)
-        .map_err(|_| PostgresUnifiedStoreError::InvalidActionId)?;
+    let action_id =
+        ActionId::new(unhex(fields[2])?).map_err(|_| PostgresUnifiedStoreError::InvalidActionId)?;
     let idempotency_key = unhex(fields[3])?;
     let operation_ref = unhex(fields[4])?;
     let revision = parse_u64(fields[5])?;
@@ -629,7 +637,11 @@ fn parse_evidence_source(value: &str) -> Result<UnifiedEvidenceSource, PostgresU
 }
 
 fn encode_vec(values: &[String]) -> String {
-    values.iter().map(|value| hex(value)).collect::<Vec<_>>().join(",")
+    values
+        .iter()
+        .map(|value| hex(value))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn decode_vec(value: &str) -> Result<Vec<String>, PostgresUnifiedStoreError> {
@@ -654,9 +666,8 @@ fn unhex(value: &str) -> Result<String, PostgresUnifiedStoreError> {
     let mut bytes = Vec::with_capacity(value.len() / 2);
     for pair in value.as_bytes().chunks_exact(2) {
         let pair = std::str::from_utf8(pair).map_err(|_| PostgresUnifiedStoreError::InvalidHex)?;
-        bytes.push(
-            u8::from_str_radix(pair, 16).map_err(|_| PostgresUnifiedStoreError::InvalidHex)?,
-        );
+        bytes
+            .push(u8::from_str_radix(pair, 16).map_err(|_| PostgresUnifiedStoreError::InvalidHex)?);
     }
     String::from_utf8(bytes).map_err(|_| PostgresUnifiedStoreError::InvalidUtf8)
 }
@@ -733,8 +744,8 @@ mod tests {
         store.migrate().expect("migration");
         let ticket = ticket(action(suffix));
         store.delete_action(&ticket.action_id).expect("cleanup");
-        let binding = IdempotencyBinding::new(&ticket, format!("idem:postgres:{suffix}"))
-            .expect("binding");
+        let binding =
+            IdempotencyBinding::new(&ticket, format!("idem:postgres:{suffix}")).expect("binding");
         let runtime = PostgresUnifiedFencedRuntime::new(store);
         runtime
             .create_action(&ticket, &binding, format!("operation:postgres:{suffix}"))
@@ -792,7 +803,10 @@ mod tests {
             store_b.compare_and_swap(&action_b, Some(current.revision), b)
         });
         barrier.wait();
-        let results = [left.join().expect("left").expect("left cas"), right.join().expect("right").expect("right cas")];
+        let results = [
+            left.join().expect("left").expect("left cas"),
+            right.join().expect("right").expect("right cas"),
+        ];
         assert_eq!(results.iter().filter(|result| **result).count(), 1);
         runtime.store().delete_action(&ticket.action_id).ok();
     }
@@ -852,8 +866,11 @@ mod tests {
             .prepare_attempt(&token, &initial(&ticket, &binding))
             .expect("prepare");
         let receipt = FencedActuatorReceipt {
-            request: FencedActuatorRequest::from_permit(&permit, "operation:postgres:late-evidence")
-                .expect("request"),
+            request: FencedActuatorRequest::from_permit(
+                &permit,
+                "operation:postgres:late-evidence",
+            )
+            .expect("request"),
             observed_at: runtime.store().authoritative_now().expect("time"),
             outcome: FencedActuatorOutcome::Applied,
             proof_ref: "proof:postgres:late-success".into(),
