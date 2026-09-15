@@ -49,7 +49,13 @@
 - distinguish `Applied`, `AlreadyApplied`, and explicit downstream rejections for stale/future epochs, wrong owners, expired authority, and identity conflicts;
 - add `InMemoryFencedActuator` as a process-local atomic compare+apply reference implementation that rejects stale requests before effect insertion and prevents duplicate application of the same logical effect;
 - keep downstream actuator receipts separate from local dispatch receipts and require production actuators to make fence comparison plus side-effect commit one atomic resource operation;
-- add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, reconciliation-retry, attempt-ledger, durable-journal, provider-reconciliation, recovery-lease-fencing, and fenced-actuator examples plus architecture documentation.
+- add `DurableActuatorReceiptBridge` as a durable sidecar binding `ActionId`, idempotency key, `operation_ref`, fenced permit identity, actuator receipts, and recovery observations before they are projected into the main journal;
+- persist actuator success evidence before main-journal projection and replay unsynced evidence idempotently by proof reference after a crash between the two stores;
+- recover the crash-after-external-apply/before-local-receipt window by reconciling the durable `ActionId + idempotency_key + operation_ref` identity instead of assuming that a missing receipt means no effect;
+- project positive actuator evidence as external success when local dispatch exists or reconciliation success when it does not, without fabricating a `DispatchReceipt`;
+- keep rejected/unknown actuator observations at `StillUnknown` so rejection never silently becomes `NoEffectConfirmed` or retry permission;
+- allow positive durable actuator evidence to become `EvidenceRef::Supported` for a later trajectory bead, closing the external-proof loop without rewriting past bead knowledge;
+- add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, reconciliation-retry, attempt-ledger, durable-journal, provider-reconciliation, recovery-lease-fencing, fenced-actuator, and actuator-receipt-bridge examples plus architecture documentation.
 
 ## 0.1.0
 
