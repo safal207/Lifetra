@@ -67,6 +67,11 @@
 - serialize concurrent schema startup with a transaction-scoped PostgreSQL advisory lock, avoiding system-catalog races around simultaneous `CREATE TABLE IF NOT EXISTS` calls;
 - exercise the PostgreSQL backend in CI against a real PostgreSQL 17 service, including independent-connection CAS contention, real DB-time expiry, late evidence admission, and proof-lineage retry persistence;
 - keep arbitrary remote payments, chains, and HTTP side effects outside the SQL transaction unless the external resource explicitly participates in the same transactional substrate;
+- run PostgreSQL unified-state CAS attempts at `SERIALIZABLE` and classify database failures by transaction phase instead of treating every error as the same retry signal;
+- retry whole transactions only for PostgreSQL-aborted serialization/deadlock failures or connection loss known before commit, bounded by `PostgresTransactionRetryPolicy`;
+- reconcile ambiguous COMMIT acknowledgement through durable revision/payload state, distinguishing `Applied`, `NotApplied`, `Contended`, and fail-closed `Unknown`;
+- keep a superseded ambiguous COMMIT at `Unknown` rather than using a later revision as proof of whether the older write committed;
+- add deterministic SQLSTATE fault classification tests plus PostgreSQL-backed commit-outcome recovery tests;
 - add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, reconciliation-retry, attempt-ledger, durable-journal, provider-reconciliation, recovery-lease-fencing, fenced-actuator, actuator-receipt-bridge, unified-fenced-store, and postgres-unified-store examples plus architecture documentation.
 
 ## 0.1.0
