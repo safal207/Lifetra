@@ -315,12 +315,7 @@ mod tests {
 
         let (trace, reconciliation, context) = ledger.retry_inputs().expect("initial retry inputs");
         let initial = retry_authority
-            .evaluate(
-                &trace,
-                &ledger.binding,
-                reconciliation.as_ref(),
-                context,
-            )
+            .evaluate(&trace, &ledger.binding, reconciliation.as_ref(), context)
             .expect("initial dispatch decision");
         ledger
             .record_dispatch(&initial, Timestamp::new(11), "proof:dispatch:attempt:0")
@@ -336,12 +331,7 @@ mod tests {
 
         let (trace, reconciliation, context) = ledger.retry_inputs().expect("retry inputs");
         let retry = retry_authority
-            .evaluate(
-                &trace,
-                &ledger.binding,
-                reconciliation.as_ref(),
-                context,
-            )
+            .evaluate(&trace, &ledger.binding, reconciliation.as_ref(), context)
             .expect("redispatch decision");
         let second_id = ledger
             .record_dispatch(&retry, Timestamp::new(13), "proof:dispatch:attempt:1")
