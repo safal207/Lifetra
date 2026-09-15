@@ -4,14 +4,20 @@
 //! of ideas and entities across causality, orientation, trajectory, reflection,
 //! resonance, synergy, bounded trajectory beads, proof-carrying bead chains,
 //! proof-backed orientation deltas, bounded correction policies, decision authority,
-//! identity-preserving execution receipts, and reconciliation-gated retry authority.
+//! identity-preserving execution receipts, reconciliation-gated retry authority,
+//! and append-only physical attempt ledgers.
 
+mod attempt_ledger;
 mod correction_policy;
 mod execution_receipt;
 mod orientation_delta;
 mod reconciliation;
 mod safety_authority;
 
+pub use attempt_ledger::{
+    AttemptBlock, AttemptDispatchReceipt, AttemptExternalReceipt, AttemptId, AttemptLedger,
+    AttemptReconciliationReceipt, AttemptRecord, AttemptStatus,
+};
 pub use correction_policy::{
     CorrectionBlock, CorrectionDecision, CorrectionMemory, CorrectionPolicy, OrientationAdjustment,
 };
@@ -291,5 +297,60 @@ mod tests {
             after.verdict,
             RetryVerdict::RedispatchAllowed { ordinal: 1 }
         );
+    }
+
+    #[test]
+    fn facade_exposes_append_only_attempt_ledger() {
+        let ticket = AuthorityTicket {
+            action_id: ActionId::new("action:attempt-ledger:facade").expect("valid action id"),
+            source_bead: BeadId::new("bead:attempt-ledger:facade"),
+            execution_mode: ExecutionMode::Automatic,
+            authority_proof_refs: vec!["proof:authority:attempt-ledger".into()],
+            issued_at: Timestamp::new(10),
+        };
+        let binding =
+            IdempotencyBinding::new(&ticket, "idem:attempt-ledger:facade").expect("valid key");
+        let mut ledger = AttemptLedger::new(ticket, binding).expect("valid attempt ledger");
+        let retry_authority = RetryAuthority::new(RetryPolicy::new(1, false, true));
+
+        let (trace, reconciliation, context) = ledger.retry_inputs().expect("initial retry inputs");
+        let initial = retry_authority
+            .evaluate(
+                &trace,
+                &ledger.binding,
+                reconciliation.as_ref(),
+                context,
+            )
+            .expect("initial dispatch decision");
+        ledger
+            .record_dispatch(&initial, Timestamp::new(11), "proof:dispatch:attempt:0")
+            .expect("initial attempt should record");
+        ledger
+            .record_reconciliation(
+                0,
+                Timestamp::new(12),
+                ReconciliationOutcome::NoEffectConfirmed,
+                "proof:no-effect:attempt:0",
+            )
+            .expect("attempt reconciliation should record");
+
+        let (trace, reconciliation, context) = ledger.retry_inputs().expect("retry inputs");
+        let retry = retry_authority
+            .evaluate(
+                &trace,
+                &ledger.binding,
+                reconciliation.as_ref(),
+                context,
+            )
+            .expect("redispatch decision");
+        let second = ledger
+            .record_dispatch(&retry, Timestamp::new(13), "proof:dispatch:attempt:1")
+            .expect("second attempt should record");
+
+        assert_eq!(ledger.attempts().len(), 2);
+        assert_eq!(second.id.ordinal, 1);
+        assert_eq!(second.id.action_id, ledger.ticket.action_id);
+        assert_eq!(ledger.retry_context().redispatches_used, 1);
+        assert_eq!(ledger.binding.key, "idem:attempt-ledger:facade");
     }
 }
