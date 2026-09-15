@@ -18,10 +18,35 @@ This v0.1 foundation provides a clean, composable domain model rather than a ful
 - `lifetra-entity` — aggregated `EntityState` built from the six domain dimensions
 - `lifetra-causal` — causal links and causal state
 - `lifetra-orient` — orientation vectors across conceptual tendencies
-- `lifetra-trajectory` — lifecycle stages and transition history
+- `lifetra-trajectory` — lifecycle stages, transition history, and the bead-thread trajectory model
 - `lifetra-reflect` — self-observation and contradictions
 - `lifetra-resonance` — alignment with self, world, and time
 - `lifetra-synergy` — collaborative potential and emergent value
+
+## Bead-thread trajectory model
+
+Lifetra now includes a richer trajectory representation based on the **bead on a thread** metaphor:
+
+- the **thread** is the persistent trajectory and center of orientation;
+- each **bead** is a bounded time slice such as a frame, iteration, session, hour, day, or week;
+- each bead is split into **sectors**;
+- each sector may contain its own directed graph;
+- bead-to-bead transitions record explicit cause, effect, transition kind, spatial scope, confidence, and supporting evidence.
+
+This makes it possible to model not only *what happened next*, but also **where it happened, why it changed, what evidence supports the change, and whether the overall system is still moving in the same direction**.
+
+```text
+orientation center
+      |
+======+================ thread / trajectory =============================>
+      O bead A          O bead B          O bead C
+     /|\               /|\               /|\
+  space light cause  space light cause  space light cause
+```
+
+The model is useful for agent refinement loops, product iterations, experiments, user journeys, and evidence systems where local states need to remain connected to a longer-lived trajectory.
+
+See [`docs/bead-thread-trajectory.md`](docs/bead-thread-trajectory.md) for the full model and [`examples/dream_loop_beads.rs`](examples/dream_loop_beads.rs) for a visual-refinement example.
 
 ## Example
 
@@ -70,6 +95,7 @@ For a fuller walkthrough, see `examples/idea_evolution.rs`, which models an idea
 - `CausalState::influence_balance` is the normalized summary signal, while `CausalState::total_influence()` is cumulative and may exceed `1.0`.
 - `CausalState`, `OrientationVector`, `TrajectoryState`, `ReflectionState`, `ResonanceState`, and `SynergyState` include small domain helpers for common queries and checks.
 - `EntityState` now exposes `summary()`, `health_score()`, and `is_coherent()` for first-pass state analysis.
+- `TrajectoryThread`, `TrajectoryBead`, `BeadSector`, and `BeadTransition` add a graph-oriented, multi-scale temporal layer without replacing the simpler v0.1 `TrajectoryState` API.
 
 ## Coherence semantics
 
@@ -95,6 +121,8 @@ Currently exposed in Python:
 - `ResonanceState`
 - `SynergyState`
 - convenience functions: `average_alignment()`, `is_aligned()`, `combined_score()`, `is_productive()`, and `transition_count()`
+
+The bead-thread types are currently Rust-first and are not yet exposed through the minimal Python v0.1 bridge.
 
 ### Colab quickstart
 
