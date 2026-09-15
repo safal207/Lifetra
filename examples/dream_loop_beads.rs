@@ -1,11 +1,17 @@
 use lifetra::{
-    BeadSector, BeadTransition, BeadTransitionKind, SectorEdge, SectorNode,
-    TemporalGranularity, TimeWindow, Timestamp, TrajectoryBead, TrajectoryThread,
+    BeadSector, BeadTransition, BeadTransitionKind, SectorEdge, SectorNode, TemporalGranularity,
+    TimeWindow, Timestamp, TrajectoryBead, TrajectoryThread,
 };
 
 fn visual_sector(id: &str, camera: f32, light: f32, material: f32, note: &str) -> BeadSector {
-    let mut sector = BeadSector::new(id, "Visual refinement", 1.0).with_spatial_scope("upper-landing");
-    sector.push_node(SectorNode::new("camera", "Camera composition", camera, note));
+    let mut sector =
+        BeadSector::new(id, "Visual refinement", 1.0).with_spatial_scope("upper-landing");
+    sector.push_node(SectorNode::new(
+        "camera",
+        "Camera composition",
+        camera,
+        note,
+    ));
     sector.push_node(SectorNode::new(
         "light",
         "Lighting and exposure",
@@ -18,7 +24,12 @@ fn visual_sector(id: &str, camera: f32, light: f32, material: f32, note: &str) -
         material,
         "stone, plaster and timber should remain distinct",
     ));
-    sector.push_edge(SectorEdge::new("camera", "light", "changes visible surface balance", 0.72));
+    sector.push_edge(SectorEdge::new(
+        "camera",
+        "light",
+        "changes visible surface balance",
+        0.72,
+    ));
     sector.push_edge(SectorEdge::new("light", "material", "reveals", 0.81));
     sector
 }
