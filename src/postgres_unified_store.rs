@@ -4,10 +4,10 @@ use lifetra_core::Timestamp;
 
 use crate::{
     ActionId, AuthorityTicket, FencedActuatorReceipt, FencedAttemptPermit, IdempotencyBinding,
-    ReconciliationOutcome, RecoveryWorkerId, RetryDecision, UnifiedActionRecord,
-    UnifiedDispatchEvidence, UnifiedEffectEvidence, UnifiedEffectOutcome, UnifiedEvidenceCommit,
-    UnifiedEvidenceSource, UnifiedFencedBlock, UnifiedFencedRuntime, UnifiedFencedStore,
-    UnifiedFencingToken, UnifiedLeaseAuthority, UnifiedOperationBinding, UnifiedPreparedAttempt,
+    RecoveryWorkerId, RetryDecision, UnifiedActionRecord, UnifiedDispatchEvidence,
+    UnifiedEffectEvidence, UnifiedEffectOutcome, UnifiedEvidenceCommit, UnifiedEvidenceSource,
+    UnifiedFencedBlock, UnifiedFencedRuntime, UnifiedFencedStore, UnifiedFencingToken,
+    UnifiedLeaseAuthority, UnifiedOperationBinding, UnifiedPreparedAttempt,
     UnifiedProjectionMarker, UnifiedReconciliationObservation, UnifiedRuntimeDirective,
 };
 
@@ -820,38 +820,43 @@ mod tests {
 
     #[test]
     fn db_time_rejects_execution_mutation_after_expiry() {
+        use std::time::Duration;
+
         let Some((runtime, ticket, binding)) = runtime("expiry") else {
             return;
         };
+        let token = runtime
+            .acquire(
+                &ticket.action_id,
+                RecoveryWorkerId::new("expired-worker").expect("worker"),
+                1,
+            )
+            .expect("lease");
         let store = runtime.store().clone();
-        let current = store.load(&ticket.action_id).expect("load").expect("row");
-        let mut seeded = current.clone();
-        seeded.revision += 1;
-        seeded.lease = Some(UnifiedLeaseAuthority {
-            owner: RecoveryWorkerId::new("expired-worker").expect("worker"),
-            epoch: 1,
-            revision: 0,
-            expires_at: Timestamp::new(1),
-        });
-        assert!(store
-            .compare_and_swap(&ticket.action_id, Some(current.revision), seeded.clone())
-            .expect("seed expired lease"));
-        let mut illegal = seeded.clone();
+        let leased = store.load(&ticket.action_id).expect("load").expect("row");
+        let expires_at = leased.lease.as_ref().expect("lease record").expires_at;
+        while store.authoritative_now().expect("db time") < expires_at {
+            thread::sleep(Duration::from_millis(25));
+        }
+
+        let current = store.load(&ticket.action_id).expect("reload").expect("row");
+        let prepared_at = store.authoritative_now().expect("db time");
+        let mut illegal = current.clone();
         illegal.revision += 1;
         illegal.attempts.push(UnifiedPreparedAttempt {
             permit: FencedAttemptPermit {
                 action_id: ticket.action_id.clone(),
-                owner: RecoveryWorkerId::new("expired-worker").expect("worker"),
-                fencing_epoch: 1,
+                owner: token.owner,
+                fencing_epoch: token.epoch,
                 attempt_ordinal: 0,
                 idempotency_key: binding.key,
             },
-            prepared_at: Timestamp::new(2),
+            prepared_at,
             authorization_proof_refs: vec!["proof:authority:postgres".into()],
             dispatch: None,
         });
         assert!(matches!(
-            store.compare_and_swap(&ticket.action_id, Some(seeded.revision), illegal),
+            store.compare_and_swap(&ticket.action_id, Some(current.revision), illegal),
             Err(PostgresUnifiedStoreError::DatabaseLeaseExpired { epoch: 1 })
         ));
         runtime.store().delete_action(&ticket.action_id).ok();
