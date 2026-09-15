@@ -11,6 +11,13 @@ use lifetra::{
     RecoveryWorkerId, Timestamp, UnifiedActionRecord, UnifiedFencedStore, UnifiedLeaseAuthority,
 };
 
+// PostgreSQL frontend Simple Query frame for exactly `COMMIT\0`:
+// Q + int32(len = 4 + 7) + payload.
+const FRONTEND_COMMIT_FRAME: &[u8] = b"Q\x00\x00\x00\x0bCOMMIT\x00";
+// PostgreSQL backend CommandComplete frame for exactly `COMMIT\0`:
+// C + int32(len = 4 + 7) + tag.
+const BACKEND_COMMIT_COMPLETE_FRAME: &[u8] = b"C\x00\x00\x00\x0bCOMMIT\x00";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProxyFaultMode {
     DropBeforeCommitOnce,
@@ -99,14 +106,14 @@ fn handle_connection(
     let mut client_write = client;
     let mut server_read = server.try_clone()?;
     let mut server_write = server;
-    let commit_forwarded = Arc::new(AtomicBool::new(false));
-    let commit_forwarded_to_server = Arc::clone(&commit_forwarded);
+    let commit_request_forwarded = Arc::new(AtomicBool::new(false));
+    let commit_request_for_client_to_server = Arc::clone(&commit_request_forwarded);
     let fault_for_client_to_server = Arc::clone(&fault_available);
     let injected_client_to_server = Arc::clone(&injected);
 
     let client_to_server = thread::spawn(move || {
         let mut buffer = [0_u8; 8192];
-        let mut commit_tail = Vec::new();
+        let mut commit_request_tail = Vec::new();
         let mut update_tail = Vec::new();
         loop {
             let count = match client_read.read(&mut buffer) {
@@ -132,16 +139,20 @@ fn handle_connection(
                 break;
             }
 
+            // Do not arm the acknowledgement cut on an arbitrary ASCII `COMMIT`
+            // substring. Arm only after the exact frontend Simple Query COMMIT frame
+            // has been forwarded to PostgreSQL.
             if mode == ProxyFaultMode::DropCommitAckOnce
-                && contains_pattern(&mut commit_tail, bytes, b"COMMIT")
+                && contains_pattern(&mut commit_request_tail, bytes, FRONTEND_COMMIT_FRAME)
             {
-                commit_forwarded_to_server.store(true, Ordering::Release);
+                commit_request_for_client_to_server.store(true, Ordering::Release);
             }
         }
     });
 
     let fault_for_server_to_client = Arc::clone(&fault_available);
     let injected_server_to_client = Arc::clone(&injected);
+    let mut commit_complete_tail = Vec::new();
     let mut buffer = [0_u8; 8192];
     loop {
         let count = match server_read.read(&mut buffer) {
@@ -149,22 +160,33 @@ fn handle_connection(
             Ok(count) => count,
             Err(_) => break,
         };
+        let bytes = &buffer[..count];
 
-        if mode == ProxyFaultMode::DropCommitAckOnce
-            && commit_forwarded.load(Ordering::Acquire)
+        // A connection cut is a genuine lost COMMIT acknowledgement only after:
+        //   1) the exact COMMIT request was forwarded, and
+        //   2) PostgreSQL emitted the exact CommandComplete("COMMIT") frame.
+        // Consuming that frame from the server socket establishes the server-side
+        // commit boundary before deliberately withholding it from the client.
+        let commit_complete = mode == ProxyFaultMode::DropCommitAckOnce
+            && commit_request_forwarded.load(Ordering::Acquire)
+            && contains_pattern(
+                &mut commit_complete_tail,
+                bytes,
+                BACKEND_COMMIT_COMPLETE_FRAME,
+            );
+
+        if commit_complete
             && fault_for_server_to_client
                 .compare_exchange(true, false, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
         {
-            // Reading the response proves PostgreSQL reached the post-COMMIT
-            // boundary. The proxy drops that response before the client sees it.
             injected_server_to_client.fetch_add(1, Ordering::AcqRel);
             let _ = server_read.shutdown(Shutdown::Both);
             let _ = client_write.shutdown(Shutdown::Both);
             break;
         }
 
-        if client_write.write_all(&buffer[..count]).is_err() {
+        if client_write.write_all(bytes).is_err() {
             break;
         }
     }
