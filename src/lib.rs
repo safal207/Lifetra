@@ -36,10 +36,10 @@ pub use execution_receipt::{
     ExecutionTrace, ExternalExecutionReceipt,
 };
 pub use fenced_actuator::{
-    FencedActuatorAdapter, FencedActuatorConfigBlock, FencedActuatorController, FencedActuatorError,
-    FencedActuatorOutcome, FencedActuatorReceipt, FencedActuatorRejection, FencedActuatorRequest,
-    InMemoryActuatorAuthority, InMemoryAppliedEffect, InMemoryFencedActuator,
-    InMemoryFencedActuatorError,
+    FencedActuatorAdapter, FencedActuatorConfigBlock, FencedActuatorController,
+    FencedActuatorError, FencedActuatorOutcome, FencedActuatorReceipt, FencedActuatorRejection,
+    FencedActuatorRequest, InMemoryActuatorAuthority, InMemoryAppliedEffect,
+    InMemoryFencedActuator, InMemoryFencedActuatorError,
 };
 pub use lifetra_bead::{
     AggregationBlock, BeadAggregate, BeadChain, BeadCommit, BeadId, BeadScale, ChainBlock,
