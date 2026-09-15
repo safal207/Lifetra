@@ -82,6 +82,12 @@ pub use safety_authority::{
     AutonomyLevel, DecisionAuthority, ExecutionMode, SafetyConfigBlock, SafetyEnvelope,
 };
 
+impl<E> From<JournalError> for ActuatorBridgeRuntimeError<E> {
+    fn from(value: JournalError) -> Self {
+        Self::Bridge(ActuatorBridgeError::Journal(value))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
