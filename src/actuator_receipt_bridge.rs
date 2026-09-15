@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Seek, SeekFrom, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use lifetra_bead::{EvidenceRef, EvidenceStatus};
@@ -9,12 +9,17 @@ use lifetra_core::Timestamp;
 use crate::{
     ActionId, DurableJournal, ExecutionOutcome, FencedActuatorOutcome, FencedActuatorReceipt,
     FencedActuatorRejection, FencedActuatorRequest, FencedAttemptPermit, FencedDurableJournal,
-    FencedJournalError, InMemoryFencedActuator, InMemoryFencedActuatorError,
+    FencedJournalError, InMemoryFencedActuator, InMemoryFencedActuatorError, JournalError,
     ReconciliationOutcome, RecoveryDirective, RecoveryLeaseStore, RecoveryWorkerId, RetryDecision,
 };
 
 const BRIDGE_VERSION: &str = "AB1";
 
+/// Stable semantic identity for one logical side effect.
+///
+/// The binding is persisted before any actuator request is returned to the caller,
+/// so a restart can reconcile by `ActionId + idempotency_key + operation_ref` even
+/// if the process died after the external effect but before persisting the receipt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActuatorBridgeBinding {
     pub action_id: ActionId,
@@ -66,6 +71,9 @@ pub trait ActuatorRecoveryAdapter {
     ) -> Result<ActuatorRecoveryObservation, Self::Error>;
 }
 
+/// Reference reconciliation adapter for the process-local fenced actuator.
+///
+/// Absence is deliberately `StillUnknown`, never `NoEffectConfirmed`.
 impl ActuatorRecoveryAdapter for InMemoryFencedActuator {
     type Error = InMemoryFencedActuatorError;
 
@@ -175,6 +183,8 @@ impl DurableActuatorEvidence {
         }
     }
 
+    /// Converts only positive external effect evidence into bead evidence.
+    /// Rejections and unknown observations never become a supported transition.
     pub fn as_supported_evidence(&self) -> Result<EvidenceRef, ActuatorBridgeError> {
         if !self.confirms_effect() {
             return Err(ActuatorBridgeError::EvidenceDoesNotConfirmEffect);
@@ -193,7 +203,6 @@ pub struct RecoveredActuatorBridge {
     pub prepared_calls: Vec<PreparedActuatorCall>,
     pub evidence: Vec<DurableActuatorEvidence>,
     pub synced_sequences: Vec<u64>,
-    pub repaired_truncated_tail: bool,
     pub last_sequence: u64,
 }
 
@@ -248,7 +257,6 @@ pub enum ActuatorBridgeError {
     EmptyOperationRef,
     EmptyProof,
     InvalidRecord,
-    InvalidChecksum { sequence: u64 },
     SequenceGap { expected: u64, received: u64 },
     InvalidHex,
     InvalidUtf8,
@@ -257,6 +265,7 @@ pub enum ActuatorBridgeError {
     InvalidWorkerId,
     InvalidReceiptOutcome,
     InvalidRecoveryOutcome,
+    Journal(JournalError),
     JournalActionMismatch,
     JournalIdempotencyMismatch,
     PreparedIdentityMismatch,
@@ -266,6 +275,12 @@ pub enum ActuatorBridgeError {
     ObservationBeforePreparation,
     NotReconciliationState,
     EvidenceDoesNotConfirmEffect,
+}
+
+impl From<JournalError> for ActuatorBridgeError {
+    fn from(value: JournalError) -> Self {
+        Self::Journal(value)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -313,19 +328,15 @@ struct BridgeRecord {
     event: BridgeEvent,
 }
 
-struct ParsedBridge {
-    records: Vec<BridgeRecord>,
-    next_sequence: u64,
-    valid_len: usize,
-    truncated_tail: bool,
-}
-
+/// Durable sidecar that preserves operation identity and actuator evidence.
+///
+/// Each event is written to an immutable sequence file via temp-file + fsync +
+/// rename + directory fsync. The sidecar remains separate from `DurableJournal`:
+/// a crash between the two stores is repaired by `project_pending`, not hidden.
 pub struct DurableActuatorReceiptBridge {
     path: PathBuf,
-    file: File,
     binding: ActuatorBridgeBinding,
     next_sequence: u64,
-    repaired_truncated_tail: bool,
 }
 
 impl DurableActuatorReceiptBridge {
@@ -343,24 +354,13 @@ impl DurableActuatorReceiptBridge {
         }
 
         let path = path.as_ref().to_path_buf();
-        if let Some(parent) = path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-        {
-            fs::create_dir_all(parent).map_err(io_error)?;
-        }
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .open(&path)
-            .map_err(|error| {
-                if error.kind() == std::io::ErrorKind::AlreadyExists {
-                    ActuatorBridgeError::BridgeAlreadyExists
-                } else {
-                    io_error(error)
-                }
-            })?;
+        fs::create_dir(&path).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                ActuatorBridgeError::BridgeAlreadyExists
+            } else {
+                io_error(error)
+            }
+        })?;
         let binding = ActuatorBridgeBinding {
             action_id: journal.ticket().action_id.clone(),
             idempotency_key: journal.binding().key.clone(),
@@ -368,10 +368,8 @@ impl DurableActuatorReceiptBridge {
         };
         let mut bridge = Self {
             path,
-            file,
             binding: binding.clone(),
             next_sequence: 0,
-            repaired_truncated_tail: false,
         };
         bridge.append_event(&BridgeEvent::Binding(binding))?;
         Ok(bridge)
@@ -379,26 +377,15 @@ impl DurableActuatorReceiptBridge {
 
     pub fn open(path: impl AsRef<Path>) -> Result<Self, ActuatorBridgeError> {
         let path = path.as_ref().to_path_buf();
-        let bytes = fs::read(&path).map_err(io_error)?;
-        let parsed = parse_records(&bytes)?;
-        let binding = binding_from_records(&parsed.records)?;
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&path)
-            .map_err(io_error)?;
-        if parsed.truncated_tail {
-            file.set_len(parsed.valid_len as u64).map_err(io_error)?;
-            file.sync_all().map_err(io_error)?;
-        }
-        file.seek(SeekFrom::End(0)).map_err(io_error)?;
-
+        let records = read_records(&path)?;
+        let binding = binding_from_records(&records)?;
+        let next_sequence = records
+            .last()
+            .map_or(0, |record| record.sequence.saturating_add(1));
         Ok(Self {
             path,
-            file,
             binding,
-            next_sequence: parsed.next_sequence,
-            repaired_truncated_tail: parsed.truncated_tail,
+            next_sequence,
         })
     }
 
@@ -410,6 +397,8 @@ impl DurableActuatorReceiptBridge {
         &self.binding
     }
 
+    /// Main journal PREP is fsynced first; the fenced permit is then persisted in
+    /// the bridge. The caller only receives the permit after both durable writes.
     pub fn prepare<S: RecoveryLeaseStore>(
         &mut self,
         fenced: &mut FencedDurableJournal<S>,
@@ -427,9 +416,7 @@ impl DurableActuatorReceiptBridge {
         Ok(permit)
     }
 
-    /// Persists downstream evidence before it is projected into the main journal.
-    /// This keeps a crash after the external response but before journal projection
-    /// recoverable without pretending a local dispatch receipt existed.
+    /// Saves the external receipt before attempting to project it into the main journal.
     pub fn persist_receipt(
         &mut self,
         receipt: &FencedActuatorReceipt,
@@ -438,14 +425,14 @@ impl DurableActuatorReceiptBridge {
         self.append_event(&BridgeEvent::Receipt(receipt.clone()))
     }
 
+    /// Builds the exact identity required after a crash. The operation reference
+    /// comes from the bridge BIND record, not from volatile process memory.
     pub fn recovery_query(
         &self,
         journal: &DurableJournal,
     ) -> Result<ActuatorRecoveryQuery, ActuatorBridgeError> {
         self.validate_journal_identity(journal)?;
-        let journal_state = journal
-            .recover()
-            .map_err(|error| ActuatorBridgeError::Io(format!("journal recovery: {error:?}")))?;
+        let journal_state = journal.recover()?;
         let ordinal = match journal_state.directive {
             RecoveryDirective::ReconcilePreparedAttempt { ordinal }
             | RecoveryDirective::ReconcileDispatchedAttempt { ordinal } => ordinal,
@@ -487,18 +474,22 @@ impl DurableActuatorReceiptBridge {
         self.append_event(&BridgeEvent::Recovery(observation.clone()))
     }
 
-    /// Projects every durable-but-unsynced actuator observation into the main
-    /// journal. Projection is idempotent by proof reference: if a crash happened
-    /// after the journal write but before the sidecar SYNC marker, replay detects
-    /// the existing proof and only appends the missing marker.
+    /// Converges durable actuator evidence into the main execution journal.
+    ///
+    /// If the journal write succeeded before a crash but the bridge SYNC marker did
+    /// not, proof-reference detection makes the replay idempotent.
     pub fn project_pending<S: RecoveryLeaseStore>(
         &mut self,
         fenced: &mut FencedDurableJournal<S>,
         now: Timestamp,
     ) -> Result<usize, ActuatorBridgeRuntimeError<S::Error>> {
         self.validate_journal_identity(fenced.journal())?;
-        let pending = self.recover()?.pending_evidence();
-        let sequences: Vec<u64> = pending.iter().map(|evidence| evidence.sequence()).collect();
+        let pending_state = self.recover()?;
+        let sequences: Vec<u64> = pending_state
+            .pending_evidence()
+            .iter()
+            .map(|evidence| evidence.sequence())
+            .collect();
         let mut projected = 0_usize;
 
         for sequence in sequences {
@@ -509,10 +500,7 @@ impl DurableActuatorReceiptBridge {
                 .find(|evidence| evidence.sequence() == sequence)
                 .cloned()
                 .ok_or(ActuatorBridgeError::InvalidRecord)?;
-            let journal_state = fenced
-                .journal()
-                .recover()
-                .map_err(|error| ActuatorBridgeError::Io(format!("journal recovery: {error:?}")))?;
+            let journal_state = fenced.journal().recover()?;
             if !journal_contains_proof(&journal_state, evidence.proof_ref()) {
                 self.project_one(fenced, &evidence, now)?;
             }
@@ -525,14 +513,13 @@ impl DurableActuatorReceiptBridge {
     }
 
     pub fn recover(&self) -> Result<RecoveredActuatorBridge, ActuatorBridgeError> {
-        let bytes = fs::read(&self.path).map_err(io_error)?;
-        let parsed = parse_records(&bytes)?;
-        let binding = binding_from_records(&parsed.records)?;
+        let records = read_records(&self.path)?;
+        let binding = binding_from_records(&records)?;
         let mut prepared_calls = Vec::new();
         let mut evidence = Vec::new();
         let mut synced_sequences = Vec::new();
 
-        for record in parsed.records.iter().skip(1) {
+        for record in records.iter().skip(1) {
             match &record.event {
                 BridgeEvent::Binding(_) => return Err(ActuatorBridgeError::DuplicateBinding),
                 BridgeEvent::Prepared(prepared) => prepared_calls.push(prepared.clone()),
@@ -544,10 +531,10 @@ impl DurableActuatorReceiptBridge {
                     evidence.push(DurableActuatorEvidence::Recovery {
                         sequence: record.sequence,
                         observation: observation.clone(),
-                    })
+                    });
                 }
                 BridgeEvent::Synced { evidence_sequence } => {
-                    synced_sequences.push(*evidence_sequence)
+                    synced_sequences.push(*evidence_sequence);
                 }
             }
         }
@@ -557,8 +544,7 @@ impl DurableActuatorReceiptBridge {
             prepared_calls,
             evidence,
             synced_sequences,
-            repaired_truncated_tail: self.repaired_truncated_tail || parsed.truncated_tail,
-            last_sequence: parsed.next_sequence.saturating_sub(1),
+            last_sequence: records.last().map_or(0, |record| record.sequence),
         })
     }
 
@@ -583,10 +569,11 @@ impl DurableActuatorReceiptBridge {
                 sequence: pending.sequence(),
             });
         }
-        let journal_state = journal
-            .recover()
-            .map_err(|error| ActuatorBridgeError::Io(format!("journal recovery: {error:?}")))?;
-        if journal_state.directive == RecoveryDirective::CloseSucceeded {
+        let journal_state = journal.recover()?;
+        if matches!(
+            journal_state.directive,
+            RecoveryDirective::CloseSucceeded { .. }
+        ) {
             if let Some(success) = state.latest_success_evidence() {
                 return Ok(ActuatorBridgeDirective::CloseSucceeded {
                     proof_ref: success.proof_ref().to_owned(),
@@ -621,12 +608,7 @@ impl DurableActuatorReceiptBridge {
         match evidence {
             DurableActuatorEvidence::Receipt { receipt, .. } => match receipt.outcome {
                 FencedActuatorOutcome::Applied => {
-                    let journal_state = fenced
-                        .journal()
-                        .recover()
-                        .map_err(|error| {
-                            ActuatorBridgeError::Io(format!("journal recovery: {error:?}"))
-                        })?;
+                    let journal_state = fenced.journal().recover()?;
                     let locally_dispatched = journal_state
                         .ledger
                         .attempts()
@@ -691,7 +673,10 @@ impl DurableActuatorReceiptBridge {
         Ok(())
     }
 
-    fn validate_permit_identity(&self, permit: &FencedAttemptPermit) -> Result<(), ActuatorBridgeError> {
+    fn validate_permit_identity(
+        &self,
+        permit: &FencedAttemptPermit,
+    ) -> Result<(), ActuatorBridgeError> {
         if permit.action_id != self.binding.action_id
             || permit.idempotency_key != self.binding.idempotency_key
         {
@@ -759,13 +744,24 @@ impl DurableActuatorReceiptBridge {
     }
 
     fn append_event(&mut self, event: &BridgeEvent) -> Result<u64, ActuatorBridgeError> {
-        let payload = encode_event(event);
         let sequence = self.next_sequence;
-        let checksum = checksum(sequence, &payload);
-        let line = format!("{sequence}\t{checksum:016x}\t{payload}\n");
-        self.file.seek(SeekFrom::End(0)).map_err(io_error)?;
-        self.file.write_all(line.as_bytes()).map_err(io_error)?;
-        self.file.sync_all().map_err(io_error)?;
+        let final_path = self.path.join(format!("{sequence:020}.evt"));
+        let temp_path = self.path.join(format!(
+            ".tmp-{}-{sequence:020}",
+            std::process::id()
+        ));
+        let payload = encode_event(event);
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path)
+            .map_err(io_error)?;
+        file.write_all(payload.as_bytes()).map_err(io_error)?;
+        file.write_all(b"\n").map_err(io_error)?;
+        file.sync_all().map_err(io_error)?;
+        drop(file);
+        fs::rename(&temp_path, &final_path).map_err(io_error)?;
+        sync_directory(&self.path)?;
         self.next_sequence += 1;
         Ok(sequence)
     }
@@ -792,6 +788,52 @@ fn journal_contains_proof(state: &crate::RecoveredRuntime, proof_ref: &str) -> b
     })
 }
 
+fn read_records(path: &Path) -> Result<Vec<BridgeRecord>, ActuatorBridgeError> {
+    if !path.is_dir() {
+        return Err(ActuatorBridgeError::EmptyBridge);
+    }
+    let mut entries = Vec::<(u64, PathBuf)>::new();
+    for entry in fs::read_dir(path).map_err(io_error)? {
+        let entry = entry.map_err(io_error)?;
+        let file_name = entry.file_name();
+        let Some(name) = file_name.to_str() else {
+            continue;
+        };
+        let Some(sequence_raw) = name.strip_suffix(".evt") else {
+            continue;
+        };
+        let sequence = sequence_raw
+            .parse::<u64>()
+            .map_err(|_| ActuatorBridgeError::InvalidRecord)?;
+        entries.push((sequence, entry.path()));
+    }
+    entries.sort_by_key(|(sequence, _)| *sequence);
+    if entries.is_empty() {
+        return Err(ActuatorBridgeError::EmptyBridge);
+    }
+
+    let mut records = Vec::with_capacity(entries.len());
+    for (expected, (sequence, file_path)) in entries.into_iter().enumerate() {
+        let expected = expected as u64;
+        if sequence != expected {
+            return Err(ActuatorBridgeError::SequenceGap {
+                expected,
+                received: sequence,
+            });
+        }
+        let payload = fs::read_to_string(file_path).map_err(io_error)?;
+        let payload = payload
+            .strip_suffix('\n')
+            .ok_or(ActuatorBridgeError::InvalidRecord)?;
+        records.push(BridgeRecord {
+            sequence,
+            event: decode_event(payload)?,
+        });
+    }
+
+    normalize_records(records)
+}
+
 fn binding_from_records(records: &[BridgeRecord]) -> Result<ActuatorBridgeBinding, ActuatorBridgeError> {
     let first = records.first().ok_or(ActuatorBridgeError::MissingBinding)?;
     let binding = match &first.event {
@@ -808,67 +850,30 @@ fn binding_from_records(records: &[BridgeRecord]) -> Result<ActuatorBridgeBindin
     Ok(binding)
 }
 
-fn parse_records(bytes: &[u8]) -> Result<ParsedBridge, ActuatorBridgeError> {
-    if bytes.is_empty() {
-        return Err(ActuatorBridgeError::EmptyBridge);
-    }
-    let truncated_tail = !bytes.ends_with(b"\n");
-    let valid_len = if truncated_tail {
-        bytes
-            .iter()
-            .rposition(|byte| *byte == b'\n')
-            .map_or(0, |index| index + 1)
-    } else {
-        bytes.len()
-    };
-    if valid_len == 0 {
-        return Err(ActuatorBridgeError::EmptyBridge);
-    }
-
-    let mut records = Vec::new();
-    let mut expected = 0_u64;
-    for raw_line in bytes[..valid_len].split(|byte| *byte == b'\n') {
-        if raw_line.is_empty() {
-            continue;
+fn normalize_records(
+    mut records: Vec<BridgeRecord>,
+) -> Result<Vec<BridgeRecord>, ActuatorBridgeError> {
+    let binding = binding_from_records(&records)?;
+    for record in records.iter_mut().skip(1) {
+        match &mut record.event {
+            BridgeEvent::Prepared(prepared) => {
+                prepared.permit.action_id = binding.action_id.clone();
+                prepared.permit.idempotency_key = binding.idempotency_key.clone();
+            }
+            BridgeEvent::Receipt(receipt) => {
+                receipt.request.action_id = binding.action_id.clone();
+                receipt.request.idempotency_key = binding.idempotency_key.clone();
+                receipt.request.operation_ref = binding.operation_ref.clone();
+            }
+            BridgeEvent::Recovery(observation) => {
+                observation.query.action_id = binding.action_id.clone();
+                observation.query.idempotency_key = binding.idempotency_key.clone();
+                observation.query.operation_ref = binding.operation_ref.clone();
+            }
+            BridgeEvent::Binding(_) | BridgeEvent::Synced { .. } => {}
         }
-        let line = std::str::from_utf8(raw_line).map_err(|_| ActuatorBridgeError::InvalidUtf8)?;
-        let mut parts = line.splitn(3, '\t');
-        let sequence = parse_u64(parts.next())?;
-        let checksum_hex = parts.next().ok_or(ActuatorBridgeError::InvalidRecord)?;
-        let payload = parts.next().ok_or(ActuatorBridgeError::InvalidRecord)?;
-        if sequence != expected {
-            return Err(ActuatorBridgeError::SequenceGap {
-                expected,
-                received: sequence,
-            });
-        }
-        let recorded = u64::from_str_radix(checksum_hex, 16)
-            .map_err(|_| ActuatorBridgeError::InvalidRecord)?;
-        if recorded != checksum(sequence, payload) {
-            return Err(ActuatorBridgeError::InvalidChecksum { sequence });
-        }
-        records.push(BridgeRecord {
-            sequence,
-            event: decode_event(payload)?,
-        });
-        expected += 1;
     }
-
-    Ok(ParsedBridge {
-        records,
-        next_sequence: expected,
-        valid_len,
-        truncated_tail,
-    })
-}
-
-fn checksum(sequence: u64, payload: &str) -> u64 {
-    let mut hash = 0xcbf29ce484222325_u64;
-    for byte in format!("{sequence}\t{payload}").bytes() {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    hash
+    Ok(records)
 }
 
 fn encode_event(event: &BridgeEvent) -> String {
@@ -938,47 +943,9 @@ fn decode_event(payload: &str) -> Result<BridgeEvent, ActuatorBridgeError> {
     }
     let kind = fields.next().ok_or(ActuatorBridgeError::InvalidRecord)?;
     let remaining: Vec<&str> = fields.collect();
-
     match kind {
-        "BIND" => {
-            if remaining.len() != 3 {
-                return Err(ActuatorBridgeError::InvalidRecord);
-            }
-            let action_id = ActionId::new(decode_string(remaining[0])?)
-                .map_err(|_| ActuatorBridgeError::InvalidActionId)?;
-            let idempotency_key = decode_string(remaining[1])?;
-            let operation_ref = decode_string(remaining[2])?;
-            if idempotency_key.trim().is_empty() {
-                return Err(ActuatorBridgeError::EmptyIdempotencyKey);
-            }
-            if operation_ref.trim().is_empty() {
-                return Err(ActuatorBridgeError::EmptyOperationRef);
-            }
-            Ok(BridgeEvent::Binding(ActuatorBridgeBinding {
-                action_id,
-                idempotency_key,
-                operation_ref,
-            }))
-        }
-        "PREP" => {
-            if remaining.len() != 4 {
-                return Err(ActuatorBridgeError::InvalidRecord);
-            }
-            let binding_placeholder = ActionId::new("bridge:placeholder")
-                .map_err(|_| ActuatorBridgeError::InvalidActionId)?;
-            let owner = RecoveryWorkerId::new(decode_string(remaining[0])?)
-                .map_err(|_| ActuatorBridgeError::InvalidWorkerId)?;
-            Ok(BridgeEvent::Prepared(PreparedActuatorCall {
-                permit: FencedAttemptPermit {
-                    action_id: binding_placeholder,
-                    owner,
-                    fencing_epoch: parse_u64(Some(remaining[1]))?,
-                    attempt_ordinal: parse_u32(Some(remaining[2]))?,
-                    idempotency_key: String::new(),
-                },
-                prepared_at: Timestamp::new(parse_i64(Some(remaining[3]))?),
-            }))
-        }
+        "BIND" => decode_binding(&remaining),
+        "PREP" => decode_prepared(&remaining),
         "RCPT" => decode_receipt(&remaining),
         "RECO" => decode_recovery(&remaining),
         "SYNC" => {
@@ -993,30 +960,43 @@ fn decode_event(payload: &str) -> Result<BridgeEvent, ActuatorBridgeError> {
     }
 }
 
-fn normalize_records(
-    mut records: Vec<BridgeRecord>,
-) -> Result<Vec<BridgeRecord>, ActuatorBridgeError> {
-    let binding = binding_from_records(&records)?;
-    for record in records.iter_mut().skip(1) {
-        match &mut record.event {
-            BridgeEvent::Prepared(prepared) => {
-                prepared.permit.action_id = binding.action_id.clone();
-                prepared.permit.idempotency_key = binding.idempotency_key.clone();
-            }
-            BridgeEvent::Receipt(receipt) => {
-                receipt.request.action_id = binding.action_id.clone();
-                receipt.request.idempotency_key = binding.idempotency_key.clone();
-                receipt.request.operation_ref = binding.operation_ref.clone();
-            }
-            BridgeEvent::Recovery(observation) => {
-                observation.query.action_id = binding.action_id.clone();
-                observation.query.idempotency_key = binding.idempotency_key.clone();
-                observation.query.operation_ref = binding.operation_ref.clone();
-            }
-            BridgeEvent::Binding(_) | BridgeEvent::Synced { .. } => {}
-        }
+fn decode_binding(fields: &[&str]) -> Result<BridgeEvent, ActuatorBridgeError> {
+    if fields.len() != 3 {
+        return Err(ActuatorBridgeError::InvalidRecord);
     }
-    Ok(records)
+    let action_id = ActionId::new(decode_string(fields[0])?)
+        .map_err(|_| ActuatorBridgeError::InvalidActionId)?;
+    let idempotency_key = decode_string(fields[1])?;
+    let operation_ref = decode_string(fields[2])?;
+    if idempotency_key.trim().is_empty() {
+        return Err(ActuatorBridgeError::EmptyIdempotencyKey);
+    }
+    if operation_ref.trim().is_empty() {
+        return Err(ActuatorBridgeError::EmptyOperationRef);
+    }
+    Ok(BridgeEvent::Binding(ActuatorBridgeBinding {
+        action_id,
+        idempotency_key,
+        operation_ref,
+    }))
+}
+
+fn decode_prepared(fields: &[&str]) -> Result<BridgeEvent, ActuatorBridgeError> {
+    if fields.len() != 4 {
+        return Err(ActuatorBridgeError::InvalidRecord);
+    }
+    let owner = RecoveryWorkerId::new(decode_string(fields[0])?)
+        .map_err(|_| ActuatorBridgeError::InvalidWorkerId)?;
+    Ok(BridgeEvent::Prepared(PreparedActuatorCall {
+        permit: FencedAttemptPermit {
+            action_id: placeholder_action()?,
+            owner,
+            fencing_epoch: parse_u64(Some(fields[1]))?,
+            attempt_ordinal: parse_u32(Some(fields[2]))?,
+            idempotency_key: String::new(),
+        },
+        prepared_at: Timestamp::new(parse_i64(Some(fields[3]))?),
+    }))
 }
 
 fn decode_receipt(fields: &[&str]) -> Result<BridgeEvent, ActuatorBridgeError> {
@@ -1025,15 +1005,9 @@ fn decode_receipt(fields: &[&str]) -> Result<BridgeEvent, ActuatorBridgeError> {
     }
     let owner = RecoveryWorkerId::new(decode_string(fields[0])?)
         .map_err(|_| ActuatorBridgeError::InvalidWorkerId)?;
-    let outcome = decode_receipt_outcome(
-        fields[4],
-        parse_u64(Some(fields[5]))?,
-        parse_u32(Some(fields[6]))?,
-    )?;
     Ok(BridgeEvent::Receipt(FencedActuatorReceipt {
         request: FencedActuatorRequest {
-            action_id: ActionId::new("bridge:placeholder")
-                .map_err(|_| ActuatorBridgeError::InvalidActionId)?,
+            action_id: placeholder_action()?,
             owner,
             fencing_epoch: parse_u64(Some(fields[1]))?,
             attempt_ordinal: parse_u32(Some(fields[2]))?,
@@ -1041,7 +1015,11 @@ fn decode_receipt(fields: &[&str]) -> Result<BridgeEvent, ActuatorBridgeError> {
             operation_ref: String::new(),
         },
         observed_at: Timestamp::new(parse_i64(Some(fields[3]))?),
-        outcome,
+        outcome: decode_receipt_outcome(
+            fields[4],
+            parse_u64(Some(fields[5]))?,
+            parse_u32(Some(fields[6]))?,
+        )?,
         proof_ref: decode_string(fields[7])?,
     }))
 }
@@ -1052,15 +1030,9 @@ fn decode_recovery(fields: &[&str]) -> Result<BridgeEvent, ActuatorBridgeError> 
     }
     let owner = RecoveryWorkerId::new(decode_string(fields[0])?)
         .map_err(|_| ActuatorBridgeError::InvalidWorkerId)?;
-    let outcome = decode_recovery_outcome(
-        fields[4],
-        parse_u64(Some(fields[5]))?,
-        parse_u32(Some(fields[6]))?,
-    )?;
     Ok(BridgeEvent::Recovery(ActuatorRecoveryObservation {
         query: ActuatorRecoveryQuery {
-            action_id: ActionId::new("bridge:placeholder")
-                .map_err(|_| ActuatorBridgeError::InvalidActionId)?,
+            action_id: placeholder_action()?,
             idempotency_key: String::new(),
             operation_ref: String::new(),
             attempt_ordinal: parse_u32(Some(fields[2]))?,
@@ -1068,9 +1040,17 @@ fn decode_recovery(fields: &[&str]) -> Result<BridgeEvent, ActuatorBridgeError> 
             prepared_epoch: parse_u64(Some(fields[1]))?,
         },
         observed_at: Timestamp::new(parse_i64(Some(fields[3]))?),
-        outcome,
+        outcome: decode_recovery_outcome(
+            fields[4],
+            parse_u64(Some(fields[5]))?,
+            parse_u32(Some(fields[6]))?,
+        )?,
         proof_ref: decode_string(fields[7])?,
     }))
+}
+
+fn placeholder_action() -> Result<ActionId, ActuatorBridgeError> {
+    ActionId::new("bridge:placeholder").map_err(|_| ActuatorBridgeError::InvalidActionId)
 }
 
 fn encode_receipt_outcome(outcome: &FencedActuatorOutcome) -> (&'static str, u64, u32) {
@@ -1198,13 +1178,17 @@ fn parse_i64(value: Option<&str>) -> Result<i64, ActuatorBridgeError> {
         .map_err(|_| ActuatorBridgeError::InvalidNumber)
 }
 
+fn sync_directory(path: &Path) -> Result<(), ActuatorBridgeError> {
+    let directory = File::open(path).map_err(io_error)?;
+    directory.sync_all().map_err(io_error)
+}
+
 fn io_error(error: std::io::Error) -> ActuatorBridgeError {
     ActuatorBridgeError::Io(error.to_string())
 }
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1280,6 +1264,11 @@ mod tests {
         (journal_path, bridge_path, bridge, fenced, store)
     }
 
+    fn cleanup(journal_path: PathBuf, bridge_path: PathBuf) {
+        fs::remove_file(journal_path).ok();
+        fs::remove_dir_all(bridge_path).ok();
+    }
+
     #[test]
     fn operation_identity_and_permit_are_durable_before_effect() {
         let (journal_path, bridge_path, mut bridge, mut fenced, _) = setup("identity");
@@ -1300,9 +1289,7 @@ mod tests {
         assert_eq!(state.binding.operation_ref, "operation:bridge:payout:1");
         assert_eq!(state.prepared_calls.len(), 1);
         assert_eq!(state.prepared_calls[0].permit.attempt_ordinal, 0);
-
-        fs::remove_file(journal_path).ok();
-        fs::remove_file(bridge_path).ok();
+        cleanup(journal_path, bridge_path);
     }
 
     #[test]
@@ -1328,7 +1315,7 @@ mod tests {
             })
             .expect("authority");
         let receipt = FencedActuatorController
-            .execute(&permit, &bridge.binding().operation_ref, &actuator)
+            .execute(&permit, bridge.binding().operation_ref.clone(), &actuator)
             .expect("actuator");
         bridge.persist_receipt(&receipt).expect("receipt durable");
         assert_eq!(
@@ -1344,9 +1331,7 @@ mod tests {
             recovered.directive,
             RecoveryDirective::CloseSucceeded { ordinal: 0 }
         );
-
-        fs::remove_file(journal_path).ok();
-        fs::remove_file(bridge_path).ok();
+        cleanup(journal_path, bridge_path);
     }
 
     #[test]
@@ -1383,7 +1368,6 @@ mod tests {
         bridge
             .project_pending(&mut fenced, Timestamp::new(104))
             .expect("project");
-
         let recovered = fenced.journal().recover().expect("recover");
         assert_eq!(
             recovered.ledger.attempts()[0]
@@ -1393,9 +1377,7 @@ mod tests {
                 .outcome,
             ExecutionOutcome::Succeeded
         );
-
-        fs::remove_file(journal_path).ok();
-        fs::remove_file(bridge_path).ok();
+        cleanup(journal_path, bridge_path);
     }
 
     #[test]
@@ -1426,18 +1408,15 @@ mod tests {
         bridge
             .project_pending(&mut fenced, Timestamp::new(103))
             .expect("project");
-        let recovered = fenced.journal().recover().expect("recover");
         assert_eq!(
-            recovered.directive,
+            fenced.journal().recover().expect("recover").directive,
             RecoveryDirective::ReconcilePreparedAttempt { ordinal: 0 }
         );
-
-        fs::remove_file(journal_path).ok();
-        fs::remove_file(bridge_path).ok();
+        cleanup(journal_path, bridge_path);
     }
 
     #[test]
-    fn crash_after_external_apply_can_reconcile_by_durable_operation_identity() {
+    fn crash_after_external_apply_reconciles_by_durable_operation_identity() {
         let (journal_path, bridge_path, mut bridge, mut fenced, store) = setup("crash-after-apply");
         let initial = decision(fenced.journal());
         let permit = bridge
@@ -1462,7 +1441,7 @@ mod tests {
             .execute(&permit, bridge.binding().operation_ref.clone(), &actuator)
             .expect("external apply");
         assert_eq!(applied.outcome, FencedActuatorOutcome::Applied);
-        // Crash window: do not persist `applied` locally.
+        // Crash window: the external effect exists, but no local receipt was persisted.
         drop(fenced);
         drop(bridge);
 
@@ -1490,16 +1469,14 @@ mod tests {
             }
         ));
 
-        let fenced = FencedDurableJournal::acquire(
+        let mut fenced = FencedDurableJournal::acquire(
             journal,
             store,
             RecoveryWorkerId::new("worker-b").expect("worker b"),
             Timestamp::new(121),
             30,
-        );
-        // The old store already gave epoch 1 to worker A. Acquiring at 121 must
-        // advance to epoch 2, matching the external authority installed above.
-        let mut fenced = fenced.expect("worker b lease");
+        )
+        .expect("worker b lease");
         bridge
             .project_pending(&mut fenced, Timestamp::new(123))
             .expect("project recovered proof");
@@ -1507,9 +1484,7 @@ mod tests {
             fenced.journal().recover().expect("recover").directive,
             RecoveryDirective::CloseSucceeded { ordinal: 0 }
         );
-
-        fs::remove_file(journal_path).ok();
-        fs::remove_file(bridge_path).ok();
+        cleanup(journal_path, bridge_path);
     }
 
     #[test]
@@ -1550,8 +1525,6 @@ mod tests {
         )
         .with_evidence(evidence);
         assert_eq!(bead.supported_evidence_count(), 1);
-
-        fs::remove_file(journal_path).ok();
-        fs::remove_file(bridge_path).ok();
+        cleanup(journal_path, bridge_path);
     }
 }
