@@ -298,7 +298,11 @@ impl TrajectoryBead {
 
     /// Weighted summary signal across sector-local graphs.
     pub fn weighted_signal(&self) -> Scalar {
-        let total_weight = self.sectors.iter().map(|sector| sector.weight).sum::<Scalar>();
+        let total_weight = self
+            .sectors
+            .iter()
+            .map(|sector| sector.weight)
+            .sum::<Scalar>();
         if total_weight <= Scalar::EPSILON {
             return 0.0;
         }
@@ -501,10 +505,20 @@ mod tests {
 
     #[test]
     fn bead_contains_sector_local_graphs() {
-        let mut visual = BeadSector::new("visual", "Visual fidelity", 0.7)
-            .with_spatial_scope("upper-landing");
-        visual.push_node(SectorNode::new("camera", "Camera", 0.42, "too close to wall"));
-        visual.push_node(SectorNode::new("light", "Lighting", 0.58, "highlights retain detail"));
+        let mut visual =
+            BeadSector::new("visual", "Visual fidelity", 0.7).with_spatial_scope("upper-landing");
+        visual.push_node(SectorNode::new(
+            "camera",
+            "Camera",
+            0.42,
+            "too close to wall",
+        ));
+        visual.push_node(SectorNode::new(
+            "light",
+            "Lighting",
+            0.58,
+            "highlights retain detail",
+        ));
         visual.push_edge(SectorEdge::new("camera", "light", "exposes", 0.6));
 
         let mut bead = TrajectoryBead::new(
