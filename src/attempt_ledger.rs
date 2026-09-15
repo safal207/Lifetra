@@ -164,7 +164,7 @@ pub enum AttemptBlock {
 /// The ledger keeps the provider-facing idempotency binding stable while each
 /// network dispatch receives a distinct ordinal. It never treats the existence
 /// of an idempotency key as permission to retry.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AttemptLedger {
     pub ticket: AuthorityTicket,
     pub binding: IdempotencyBinding,
@@ -495,14 +495,17 @@ mod tests {
     #[test]
     fn initial_dispatch_becomes_attempt_zero() {
         let mut ledger = ledger();
+        let expected_action = ledger.ticket.action_id.clone();
         let decision = initial_decision(&ledger.ticket, &ledger.binding);
 
-        let attempt = ledger
+        let attempt_id = ledger
             .record_dispatch(&decision, Timestamp::new(11), "proof:dispatch:0")
-            .expect("initial dispatch should record");
+            .expect("initial dispatch should record")
+            .id
+            .clone();
 
-        assert_eq!(attempt.id.ordinal, 0);
-        assert_eq!(attempt.id.action_id, ledger.ticket.action_id);
+        assert_eq!(attempt_id.ordinal, 0);
+        assert_eq!(attempt_id.action_id, expected_action);
         assert_eq!(ledger.retry_context().redispatches_used, 0);
     }
 
@@ -529,6 +532,7 @@ mod tests {
     #[test]
     fn no_effect_resolution_allows_next_physical_attempt_with_same_identity() {
         let mut ledger = ledger();
+        let expected_action = ledger.ticket.action_id.clone();
         let initial = initial_decision(&ledger.ticket, &ledger.binding);
         ledger
             .record_dispatch(&initial, Timestamp::new(11), "proof:dispatch:0")
@@ -548,12 +552,14 @@ mod tests {
             "proof:no-effect:0",
         );
 
-        let second = ledger
+        let second_id = ledger
             .record_dispatch(&retry, Timestamp::new(13), "proof:dispatch:1")
-            .expect("redispatch should record");
+            .expect("redispatch should record")
+            .id
+            .clone();
 
-        assert_eq!(second.id.ordinal, 1);
-        assert_eq!(second.id.action_id, ledger.ticket.action_id);
+        assert_eq!(second_id.ordinal, 1);
+        assert_eq!(second_id.action_id, expected_action);
         assert_eq!(ledger.binding.key, "idem:ledger:1");
         assert_eq!(ledger.retry_context().redispatches_used, 1);
     }
