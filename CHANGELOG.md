@@ -83,8 +83,16 @@
 - persist a stable action binding, fencing epoch, and prepared attempt on the primary, then prove that exact state is readable from the standby before primary loss;
 - kill the primary, promote the standby, and successfully renew the same application fencing epoch on the promoted leader, preserving attempt history while advancing lease and record revisions;
 - keep database leadership distinct from application authority: promotion does not mint a new Lifetra fencing epoch by itself;
-- scope the result to the tested synchronous two-node topology: automatic election, stable client endpoint routing, old-primary STONITH/rejoin, cross-host clock skew, multi-standby quorum, and an RTO SLA remain future work;
+- scope the synchronous failover result to the tested two-node topology and keep automatic election, old-primary fencing/rejoin, endpoint failover automation, and RTO guarantees explicit future boundaries;
 - add `docs/postgres-ha-failover.md` and `examples/postgres_ha_failover_probe.rs` for synchronous failover evidence;
+- add a dedicated split-brain CI topology with a stable HAProxy client DSN that is explicitly repointed from the failed primary to the promoted standby while Lifetra keeps the same connection endpoint;
+- power-fence the old primary before promotion and require it to stay stopped while the promoted leader continues the same `ActionId`, operation identity, prepared attempt, and fencing epoch;
+- initialize the split-brain primary with data checksums, then use `pg_rewind` against the promoted leader before the old primary is permitted to restart;
+- reconfigure the rewound old primary with `standby.signal`, a fresh physical replication slot, and a primary connection to the promoted leader;
+- prove the resurrected old primary is in recovery, rejects a direct `CREATE TABLE` write as read-only, and streams from the promoted leader before accepting it as a safe rejoined node;
+- preserve application authority across database role changes and rejoin: the leader and rewound standby expose the same record revision/fencing epoch while only the current database leader remains writable;
+- keep Docker power fencing and explicit endpoint remapping scoped as CI control-plane evidence rather than claiming production hardware STONITH or automatic leader election;
+- add `docs/postgres-split-brain-fencing.md`, `examples/postgres_split_brain_probe.rs`, and a dedicated `PostgreSQL Split-Brain CI` workflow for the resurrection/rejoin proof;
 - add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, reconciliation-retry, attempt-ledger, durable-journal, provider-reconciliation, recovery-lease-fencing, fenced-actuator, actuator-receipt-bridge, unified-fenced-store, and postgres-unified-store examples plus architecture documentation.
 
 ## 0.1.0
