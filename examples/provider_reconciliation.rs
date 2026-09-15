@@ -2,8 +2,8 @@ use std::fs;
 
 use lifetra::{
     ActionId, AuthorityTicket, BeadId, DurableJournal, ExecutionMode, IdempotencyBinding,
-    ProviderObservation, ProviderReconciliationAdapter, ProviderReconciliationQuery,
-    ProviderReconciler, ReconciliationOutcome, RetryAuthority, RetryDecision, RetryPolicy,
+    ProviderObservation, ProviderReconciler, ProviderReconciliationAdapter,
+    ProviderReconciliationQuery, ReconciliationOutcome, RetryAuthority, RetryDecision, RetryPolicy,
     RetryReason, RetryVerdict, Timestamp,
 };
 
@@ -56,7 +56,8 @@ fn main() {
         proof_refs: ticket.authority_proof_refs.clone(),
     };
 
-    let mut journal = DurableJournal::create(&path, ticket, binding).expect("journal should create");
+    let mut journal =
+        DurableJournal::create(&path, ticket, binding).expect("journal should create");
     journal
         .prepare_attempt(&initial, Timestamp::new(110))
         .expect("write-ahead prepare should persist");
@@ -65,8 +66,7 @@ fn main() {
     drop(journal);
 
     let mut journal = DurableJournal::open(&path).expect("journal should reopen");
-    let reconciler =
-        ProviderReconciler::new(RetryAuthority::new(RetryPolicy::new(1, false, true)));
+    let reconciler = ProviderReconciler::new(RetryAuthority::new(RetryPolicy::new(1, false, true)));
     let result = reconciler
         .reconcile_once(&mut journal, &ProviderProof)
         .expect("provider reconciliation should succeed");
