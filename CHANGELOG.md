@@ -29,7 +29,10 @@
 - require reconciliation before any retry from `DispatchedEffectUnknown` and keep `StillUnknown` non-retryable;
 - distinguish `NoEffectConfirmed` from generic not-found/silence so absence of a record cannot silently authorize another side effect;
 - preserve one `ActionId` and idempotency binding across redispatch decisions, with explicit retry limits and ordinals;
-- add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, and reconciliation-retry examples plus architecture documentation.
+- add append-only `AttemptLedger`, `AttemptId`, and attempt-scoped dispatch/reconciliation/external receipts so one logical action can preserve multiple physical attempts;
+- derive redispatch count from attempt history and require each redispatch decision to carry the previous attempt's retry-safe resolution proof;
+- preserve late and contradictory attempt evidence, blocking further retry when an older attempt later succeeds or evidence disagrees;
+- add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, reconciliation-retry, and attempt-ledger examples plus architecture documentation.
 
 ## 0.1.0
 
