@@ -143,7 +143,10 @@ impl DurableJournal {
         }
 
         let path = path.as_ref().to_path_buf();
-        if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        if let Some(parent) = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
             fs::create_dir_all(parent).map_err(io_error)?;
         }
 
@@ -236,9 +239,7 @@ impl DurableJournal {
             RetryVerdict::ReconcileFirst
             | RetryVerdict::CloseSucceeded
             | RetryVerdict::CloseFailed
-            | RetryVerdict::Block => {
-                return Err(JournalError::DecisionDoesNotAuthorizePreparation)
-            }
+            | RetryVerdict::Block => return Err(JournalError::DecisionDoesNotAuthorizePreparation),
         };
 
         let expected = recovered.ledger.attempts().len() as u32;
