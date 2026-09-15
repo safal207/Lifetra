@@ -44,7 +44,12 @@
 - add `FencedAttemptPermit` and `FencedDurableJournal` so stale epochs cannot continue mutating through the fenced runtime after a newer owner acquires the action;
 - keep lease timeout distinct from proof that the old process stopped, and require downstream resources to enforce fencing epochs for end-to-end stale-worker rejection;
 - include `InMemoryRecoveryLeaseStore` only as a process-local test/example CAS backend, while production multi-worker deployments require a shared atomic lease store and authoritative lease time;
-- add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, reconciliation-retry, attempt-ledger, durable-journal, provider-reconciliation, and recovery-lease-fencing examples plus architecture documentation.
+- add provider-neutral `FencedActuatorAdapter`, `FencedActuatorRequest`, `FencedActuatorReceipt`, and `FencedActuatorController` for side-effect-boundary epoch enforcement;
+- bind each fenced request to stable `ActionId`, idempotency key, attempt ordinal, owner, fencing epoch, and `operation_ref`, preventing a newer epoch from changing the semantic operation under an existing action identity;
+- distinguish `Applied`, `AlreadyApplied`, and explicit downstream rejections for stale/future epochs, wrong owners, expired authority, and identity conflicts;
+- add `InMemoryFencedActuator` as a process-local atomic compare+apply reference implementation that rejects stale requests before effect insertion and prevents duplicate application of the same logical effect;
+- keep downstream actuator receipts separate from local dispatch receipts and require production actuators to make fence comparison plus side-effect commit one atomic resource operation;
+- add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, reconciliation-retry, attempt-ledger, durable-journal, provider-reconciliation, recovery-lease-fencing, and fenced-actuator examples plus architecture documentation.
 
 ## 0.1.0
 
