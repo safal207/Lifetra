@@ -67,8 +67,8 @@ pub use lifetra_synergy::SynergyState;
 pub use lifetra_trajectory::{LifecycleStage, StateTransition, TrajectoryState};
 pub use orientation_delta::{OrientationBlock, OrientationDelta, ProvenOrientation};
 pub use postgres_resilience::{
-    classify_postgres_failure, PostgresCommitResolution, PostgresFailureDisposition,
-    PostgresFailurePhase, PostgresTransactionRetryPolicy,
+    classify_postgres_failure, classify_postgres_sqlstate, PostgresCommitResolution,
+    PostgresFailureDisposition, PostgresFailurePhase, PostgresTransactionRetryPolicy,
 };
 pub use postgres_unified_store::{
     PostgresUnifiedFencedRuntime, PostgresUnifiedFencedStore, PostgresUnifiedStoreError,
