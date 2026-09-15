@@ -1,8 +1,8 @@
 use lifetra::{
-    ActionId, AuthorityTicket, BeadId, ExecutionMode, FencedActuatorOutcome,
-    FencedActuatorReceipt, FencedActuatorRequest, IdempotencyBinding,
-    PostgresUnifiedFencedRuntime, PostgresUnifiedFencedStore, RecoveryWorkerId, RetryDecision,
-    RetryReason, RetryVerdict, Timestamp, UnifiedRuntimeDirective,
+    ActionId, AuthorityTicket, BeadId, ExecutionMode, FencedActuatorOutcome, FencedActuatorReceipt,
+    FencedActuatorRequest, IdempotencyBinding, PostgresUnifiedFencedRuntime,
+    PostgresUnifiedFencedStore, RecoveryWorkerId, RetryDecision, RetryReason, RetryVerdict,
+    Timestamp, UnifiedRuntimeDirective,
 };
 
 fn main() {
@@ -25,8 +25,7 @@ fn main() {
         authority_proof_refs: vec!["proof:authority:postgres-demo".into()],
         issued_at: Timestamp::new(10),
     };
-    let binding =
-        IdempotencyBinding::new(&ticket, "idem:postgres:demo").expect("valid binding");
+    let binding = IdempotencyBinding::new(&ticket, "idem:postgres:demo").expect("valid binding");
     let runtime = PostgresUnifiedFencedRuntime::new(store);
     runtime
         .create_action(&ticket, &binding, "operation:postgres:demo")
