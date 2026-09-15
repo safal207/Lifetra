@@ -3,10 +3,11 @@
 //! This crate re-exports the core domain types for modeling living trajectories
 //! of ideas and entities across causality, orientation, trajectory, reflection,
 //! resonance, synergy, bounded trajectory beads, proof-carrying bead chains,
-//! proof-backed orientation deltas, and bounded correction policies.
+//! proof-backed orientation deltas, bounded correction policies, and decision authority.
 
 mod correction_policy;
 mod orientation_delta;
+mod safety_authority;
 
 pub use correction_policy::{
     CorrectionBlock, CorrectionDecision, CorrectionMemory, CorrectionPolicy, OrientationAdjustment,
@@ -25,6 +26,10 @@ pub use lifetra_resonance::ResonanceState;
 pub use lifetra_synergy::SynergyState;
 pub use lifetra_trajectory::{LifecycleStage, StateTransition, TrajectoryState};
 pub use orientation_delta::{OrientationBlock, OrientationDelta, ProvenOrientation};
+pub use safety_authority::{
+    ApprovalState, AuthorityContext, AuthorityDecision, AuthorityReason, AuthorityVerdict,
+    AutonomyLevel, DecisionAuthority, ExecutionMode, SafetyConfigBlock, SafetyEnvelope,
+};
 
 #[cfg(test)]
 mod tests {
@@ -147,5 +152,47 @@ mod tests {
 
         assert!((decision.adjustment.growth - 0.1).abs() < 0.000_1);
         assert!((decision.next_orientation.toward_growth - 0.9).abs() < 0.000_1);
+    }
+
+    #[test]
+    fn facade_exposes_decision_authority_gate() {
+        let bead = TrajectoryBead::new(
+            BeadId::new("bead:authority"),
+            BeadScale::Event,
+            Timestamp::new(0),
+            Timestamp::new(1),
+        )
+        .with_evidence(EvidenceRef::new(
+            "proof:authority",
+            EvidenceStatus::Supported,
+            "verified movement",
+        ));
+        let commit = bead
+            .prove_transition("move", "verified")
+            .expect("bead should commit");
+        let proven =
+            ProvenOrientation::from_commit(OrientationVector::new(0.6, 0.5, 0.8, 0.5), &commit)
+                .expect("commit should back movement");
+        let delta = OrientationDelta::between(OrientationVector::new(0.8, 0.5, 0.8, 0.5), proven);
+        let correction = CorrectionPolicy::new(0.5, 0.1, 0.05, 0.1)
+            .expect("valid correction policy")
+            .propose(&delta, CorrectionMemory::default())
+            .expect("proof-backed delta should produce correction");
+        let envelope = SafetyEnvelope::new(
+            AutonomyLevel::BoundedAutomatic,
+            1,
+            0,
+            false,
+            0.10,
+            0.25,
+        )
+        .expect("valid safety envelope");
+        let authority = DecisionAuthority::new(envelope);
+        let gate = authority.evaluate(&correction, AuthorityContext::default());
+
+        assert_eq!(
+            gate.verdict,
+            AuthorityVerdict::Allow(ExecutionMode::Automatic)
+        );
     }
 }
