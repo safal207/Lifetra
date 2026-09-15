@@ -177,7 +177,10 @@ impl RetryAuthority {
                 trace.ticket.authority_proof_refs.clone(),
             )),
             ExecutionStatus::EffectConfirmed(ExecutionOutcome::Succeeded) => {
-                let external = trace.external.as_ref().expect("confirmed status has receipt");
+                let external = trace
+                    .external
+                    .as_ref()
+                    .expect("confirmed status has receipt");
                 Ok(base(
                     RetryVerdict::CloseSucceeded,
                     vec![RetryReason::ExternalConfirmedSuccess],
@@ -185,7 +188,10 @@ impl RetryAuthority {
                 ))
             }
             ExecutionStatus::EffectConfirmed(ExecutionOutcome::Failed) => {
-                let external = trace.external.as_ref().expect("confirmed status has receipt");
+                let external = trace
+                    .external
+                    .as_ref()
+                    .expect("confirmed status has receipt");
                 self.retry_or_close(
                     trace,
                     binding,
@@ -196,11 +202,17 @@ impl RetryAuthority {
                 )
             }
             ExecutionStatus::DispatchedEffectUnknown => {
-                let dispatch = trace.dispatch.as_ref().expect("dispatched status has receipt");
+                let dispatch = trace
+                    .dispatch
+                    .as_ref()
+                    .expect("dispatched status has receipt");
                 let Some(reconciliation) = reconciliation else {
                     return Ok(base(
                         RetryVerdict::ReconcileFirst,
-                        vec![RetryReason::EffectUnknown, RetryReason::ReconciliationRequired],
+                        vec![
+                            RetryReason::EffectUnknown,
+                            RetryReason::ReconciliationRequired,
+                        ],
                         vec![dispatch.proof_ref.clone()],
                     ));
                 };
@@ -288,8 +300,8 @@ impl RetryAuthority {
 #[cfg(test)]
 mod tests {
     use crate::{
-        AuthorityTicket, BeadId, ExecutionMode, ExecutionTrace, ExternalExecutionReceipt,
-        DispatchReceipt,
+        AuthorityTicket, BeadId, DispatchReceipt, ExecutionMode, ExecutionTrace,
+        ExternalExecutionReceipt,
     };
 
     use super::*;
@@ -344,7 +356,9 @@ mod tests {
             .expect("valid evaluation");
 
         assert_eq!(decision.verdict, RetryVerdict::ReconcileFirst);
-        assert!(decision.reasons.contains(&RetryReason::ReconciliationRequired));
+        assert!(decision
+            .reasons
+            .contains(&RetryReason::ReconciliationRequired));
     }
 
     #[test]
@@ -431,7 +445,10 @@ mod tests {
         let retry = RetryAuthority::new(RetryPolicy::new(2, true, true))
             .evaluate(&trace, &binding, None, RetryContext::default())
             .expect("valid evaluation");
-        assert_eq!(retry.verdict, RetryVerdict::RedispatchAllowed { ordinal: 1 });
+        assert_eq!(
+            retry.verdict,
+            RetryVerdict::RedispatchAllowed { ordinal: 1 }
+        );
     }
 
     #[test]
