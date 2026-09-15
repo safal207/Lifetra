@@ -223,10 +223,8 @@ mod tests {
         let envelope =
             SafetyEnvelope::new(AutonomyLevel::BoundedAutomatic, 1, 0, false, 0.10, 0.25)
                 .expect("valid safety envelope");
-        let authority = DecisionAuthority::new(envelope).evaluate(
-            &correction,
-            AuthorityContext::default(),
-        );
+        let authority =
+            DecisionAuthority::new(envelope).evaluate(&correction, AuthorityContext::default());
         let ticket = AuthorityTicket::issue(
             ActionId::new("action:execution").expect("valid action id"),
             &authority,
