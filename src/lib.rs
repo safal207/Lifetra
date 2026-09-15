@@ -6,7 +6,7 @@
 //! proof-backed orientation deltas, bounded correction policies, decision authority,
 //! identity-preserving execution receipts, reconciliation-gated retry authority,
 //! append-only physical attempt ledgers, fsync-backed durable recovery journals,
-//! and provider-neutral reconciliation adapters.
+//! provider-neutral reconciliation adapters, and recovery-lease fencing.
 
 mod attempt_ledger;
 mod correction_policy;
@@ -15,6 +15,7 @@ mod execution_receipt;
 mod orientation_delta;
 mod provider_reconciliation;
 mod reconciliation;
+mod recovery_lease;
 mod safety_authority;
 
 pub use attempt_ledger::{
@@ -54,6 +55,11 @@ pub use provider_reconciliation::{
 pub use reconciliation::{
     IdempotencyBinding, ReconciliationOutcome, ReconciliationReceipt, RetryAuthority, RetryBlock,
     RetryContext, RetryDecision, RetryPolicy, RetryReason, RetryVerdict,
+};
+pub use recovery_lease::{
+    FencedAttemptPermit, FencedDurableJournal, FencedJournalError, FencingToken,
+    InMemoryLeaseError, InMemoryRecoveryLeaseStore, LeaseConfigBlock, LeaseVersion, RecoveryLease,
+    RecoveryLeaseBlock, RecoveryLeaseManager, RecoveryLeaseStore, RecoveryWorkerId,
 };
 pub use safety_authority::{
     ApprovalState, AuthorityContext, AuthorityDecision, AuthorityReason, AuthorityVerdict,
