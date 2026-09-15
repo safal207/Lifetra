@@ -16,6 +16,7 @@ mod durable_journal;
 mod execution_receipt;
 mod fenced_actuator;
 mod orientation_delta;
+mod postgres_resilience;
 mod postgres_unified_store;
 mod provider_reconciliation;
 mod reconciliation;
@@ -65,6 +66,10 @@ pub use lifetra_resonance::ResonanceState;
 pub use lifetra_synergy::SynergyState;
 pub use lifetra_trajectory::{LifecycleStage, StateTransition, TrajectoryState};
 pub use orientation_delta::{OrientationBlock, OrientationDelta, ProvenOrientation};
+pub use postgres_resilience::{
+    classify_postgres_failure, PostgresCommitResolution, PostgresFailureDisposition,
+    PostgresFailurePhase, PostgresTransactionRetryPolicy,
+};
 pub use postgres_unified_store::{
     PostgresUnifiedFencedRuntime, PostgresUnifiedFencedStore, PostgresUnifiedStoreError,
 };

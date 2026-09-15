@@ -2,6 +2,10 @@ use postgres::{Client, NoTls, Row};
 
 use lifetra_core::Timestamp;
 
+use crate::postgres_resilience::{
+    classify_postgres_failure, PostgresCommitResolution, PostgresFailureDisposition,
+    PostgresFailurePhase, PostgresTransactionRetryPolicy,
+};
 use crate::{
     ActionId, AuthorityTicket, FencedActuatorReceipt, FencedAttemptPermit, IdempotencyBinding,
     RecoveryWorkerId, RetryDecision, UnifiedActionRecord, UnifiedDispatchEvidence,
@@ -26,14 +30,35 @@ pub enum PostgresUnifiedStoreError {
     InvalidWorkerId,
     RevisionOutOfRange,
     InvalidTransition,
-    DatabaseLeaseExpired { epoch: u64 },
-    DatabaseLeaseNotExpired { epoch: u64 },
+    DatabaseLeaseExpired {
+        epoch: u64,
+    },
+    DatabaseLeaseNotExpired {
+        epoch: u64,
+    },
+    TransactionRetryExhausted {
+        attempts: u32,
+        last_error: String,
+    },
+    CommitOutcomeUnknown {
+        expected_revision: Option<u64>,
+        observed_revision: Option<u64>,
+        last_error: String,
+    },
 }
 
 impl From<postgres::Error> for PostgresUnifiedStoreError {
     fn from(value: postgres::Error) -> Self {
         Self::Postgres(value.to_string())
     }
+}
+
+enum PostgresCasAttemptError {
+    Postgres {
+        phase: PostgresFailurePhase,
+        error: postgres::Error,
+    },
+    Store(PostgresUnifiedStoreError),
 }
 
 /// PostgreSQL implementation of `UnifiedFencedStore`.
@@ -47,6 +72,7 @@ impl From<postgres::Error> for PostgresUnifiedStoreError {
 pub struct PostgresUnifiedFencedStore {
     connection_string: String,
     table: String,
+    retry_policy: PostgresTransactionRetryPolicy,
 }
 
 impl PostgresUnifiedFencedStore {
@@ -54,6 +80,7 @@ impl PostgresUnifiedFencedStore {
         Self {
             connection_string: connection_string.into(),
             table: DEFAULT_TABLE.to_owned(),
+            retry_policy: PostgresTransactionRetryPolicy::default(),
         }
     }
 
@@ -66,11 +93,263 @@ impl PostgresUnifiedFencedStore {
         Ok(Self {
             connection_string: connection_string.into(),
             table,
+            retry_policy: PostgresTransactionRetryPolicy::default(),
         })
     }
 
     pub fn table(&self) -> &str {
         &self.table
+    }
+
+    pub fn with_retry_policy(mut self, policy: PostgresTransactionRetryPolicy) -> Self {
+        self.retry_policy = policy.normalized();
+        self
+    }
+
+    pub fn retry_policy(&self) -> PostgresTransactionRetryPolicy {
+        self.retry_policy
+    }
+
+    pub fn resolve_commit_outcome(
+        &self,
+        action_id: &ActionId,
+        expected_revision: Option<u64>,
+        replacement: &UnifiedActionRecord,
+    ) -> Result<PostgresCommitResolution, PostgresUnifiedStoreError> {
+        let observed = <Self as UnifiedFencedStore>::load(self, action_id)?;
+        match (expected_revision, observed) {
+            (None, None) => Ok(PostgresCommitResolution::NotApplied),
+            (None, Some(record)) if record == *replacement => Ok(PostgresCommitResolution::Applied),
+            (None, Some(_)) => Ok(PostgresCommitResolution::Contended),
+            (Some(expected), Some(record)) if record == *replacement => {
+                Ok(PostgresCommitResolution::Applied)
+            }
+            (Some(expected), Some(record)) if record.revision == expected => {
+                Ok(PostgresCommitResolution::NotApplied)
+            }
+            (Some(_), Some(record)) if record.revision == replacement.revision => {
+                Ok(PostgresCommitResolution::Contended)
+            }
+            (Some(_), Some(record)) if record.revision > replacement.revision => {
+                Ok(PostgresCommitResolution::Unknown {
+                    observed_revision: Some(record.revision),
+                })
+            }
+            (_, Some(record)) => Ok(PostgresCommitResolution::Unknown {
+                observed_revision: Some(record.revision),
+            }),
+            (Some(_), None) => Ok(PostgresCommitResolution::Unknown {
+                observed_revision: None,
+            }),
+        }
+    }
+
+    pub fn compare_and_swap_resilient(
+        &self,
+        action_id: &ActionId,
+        expected_revision: Option<u64>,
+        replacement: UnifiedActionRecord,
+    ) -> Result<bool, PostgresUnifiedStoreError> {
+        let max_attempts = self.retry_policy.normalized().max_attempts;
+        let mut last_error = String::new();
+
+        for attempt in 1..=max_attempts {
+            match self.compare_and_swap_once(action_id, expected_revision, &replacement) {
+                Ok(applied) => return Ok(applied),
+                Err(PostgresCasAttemptError::Store(error)) => return Err(error),
+                Err(PostgresCasAttemptError::Postgres { phase, error }) => {
+                    last_error = error.to_string();
+                    match classify_postgres_failure(&error, phase) {
+                        PostgresFailureDisposition::RetryableAbortedTransaction
+                        | PostgresFailureDisposition::RetryableBeforeCommit => {
+                            if attempt < max_attempts {
+                                std::thread::yield_now();
+                                continue;
+                            }
+                            return Err(PostgresUnifiedStoreError::TransactionRetryExhausted {
+                                attempts: attempt,
+                                last_error,
+                            });
+                        }
+                        PostgresFailureDisposition::CommitOutcomeUnknown => {
+                            match self.resolve_commit_outcome(
+                                action_id,
+                                expected_revision,
+                                &replacement,
+                            ) {
+                                Ok(PostgresCommitResolution::Applied) => return Ok(true),
+                                Ok(PostgresCommitResolution::Contended) => return Ok(false),
+                                Ok(PostgresCommitResolution::NotApplied)
+                                    if attempt < max_attempts =>
+                                {
+                                    std::thread::yield_now();
+                                    continue;
+                                }
+                                Ok(PostgresCommitResolution::NotApplied) => {
+                                    return Err(
+                                        PostgresUnifiedStoreError::TransactionRetryExhausted {
+                                            attempts: attempt,
+                                            last_error,
+                                        },
+                                    );
+                                }
+                                Ok(PostgresCommitResolution::Unknown { observed_revision }) => {
+                                    return Err(PostgresUnifiedStoreError::CommitOutcomeUnknown {
+                                        expected_revision,
+                                        observed_revision,
+                                        last_error,
+                                    });
+                                }
+                                Err(reconcile_error) => {
+                                    return Err(PostgresUnifiedStoreError::CommitOutcomeUnknown {
+                                        expected_revision,
+                                        observed_revision: None,
+                                        last_error: format!(
+                                            "{last_error}; reconciliation failed: {reconcile_error:?}"
+                                        ),
+                                    });
+                                }
+                            }
+                        }
+                        PostgresFailureDisposition::Fatal => {
+                            return Err(PostgresUnifiedStoreError::Postgres(last_error));
+                        }
+                    }
+                }
+            }
+        }
+
+        Err(PostgresUnifiedStoreError::TransactionRetryExhausted {
+            attempts: max_attempts,
+            last_error,
+        })
+    }
+
+    fn compare_and_swap_once(
+        &self,
+        action_id: &ActionId,
+        expected_revision: Option<u64>,
+        replacement: &UnifiedActionRecord,
+    ) -> Result<bool, PostgresCasAttemptError> {
+        if replacement.binding.action_id != *action_id {
+            return Err(PostgresCasAttemptError::Store(
+                PostgresUnifiedStoreError::InvalidTransition,
+            ));
+        }
+        let replacement_revision =
+            i64_revision(replacement.revision).map_err(PostgresCasAttemptError::Store)?;
+        let payload = encode_record(replacement);
+        let mut client = Client::connect(&self.connection_string, NoTls).map_err(|error| {
+            PostgresCasAttemptError::Postgres {
+                phase: PostgresFailurePhase::Connect,
+                error,
+            }
+        })?;
+        let mut tx = client
+            .transaction()
+            .map_err(|error| PostgresCasAttemptError::Postgres {
+                phase: PostgresFailurePhase::Begin,
+                error,
+            })?;
+        tx.batch_execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .map_err(|error| PostgresCasAttemptError::Postgres {
+                phase: PostgresFailurePhase::Begin,
+                error,
+            })?;
+
+        match expected_revision {
+            None => {
+                if replacement.revision != 0 {
+                    return Err(PostgresCasAttemptError::Store(
+                        PostgresUnifiedStoreError::InvalidTransition,
+                    ));
+                }
+                let changed = tx
+                    .execute(
+                        &format!(
+                            "INSERT INTO {} (action_id, revision, payload, updated_at) \
+                             VALUES ($1, $2, $3, clock_timestamp()) \
+                             ON CONFLICT (action_id) DO NOTHING",
+                            quoted_identifier(&self.table)
+                        ),
+                        &[&action_id.as_str(), &replacement_revision, &payload],
+                    )
+                    .map_err(|error| PostgresCasAttemptError::Postgres {
+                        phase: PostgresFailurePhase::Write,
+                        error,
+                    })?;
+                if changed != 1 {
+                    return Ok(false);
+                }
+                tx.commit()
+                    .map_err(|error| PostgresCasAttemptError::Postgres {
+                        phase: PostgresFailurePhase::Commit,
+                        error,
+                    })?;
+                Ok(true)
+            }
+            Some(expected) => {
+                let row = tx
+                    .query_opt(
+                        &format!(
+                            "SELECT revision, payload FROM {} WHERE action_id = $1 FOR UPDATE",
+                            quoted_identifier(&self.table)
+                        ),
+                        &[&action_id.as_str()],
+                    )
+                    .map_err(|error| PostgresCasAttemptError::Postgres {
+                        phase: PostgresFailurePhase::Read,
+                        error,
+                    })?;
+                let Some(row) = row else {
+                    return Ok(false);
+                };
+                let current = decode_row(row).map_err(PostgresCasAttemptError::Store)?;
+                if current.revision != expected {
+                    return Ok(false);
+                }
+                let now_row = tx
+                    .query_one(
+                        "SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))::BIGINT",
+                        &[],
+                    )
+                    .map_err(|error| PostgresCasAttemptError::Postgres {
+                        phase: PostgresFailurePhase::Read,
+                        error,
+                    })?;
+                let db_now = Timestamp::new(now_row.get::<_, i64>(0));
+                validate_database_transition(&current, replacement, db_now)
+                    .map_err(PostgresCasAttemptError::Store)?;
+
+                let changed = tx
+                    .execute(
+                        &format!(
+                            "UPDATE {} SET revision = $2, payload = $3, updated_at = clock_timestamp() \
+                             WHERE action_id = $1 AND revision = $4",
+                            quoted_identifier(&self.table)
+                        ),
+                        &[
+                            &action_id.as_str(),
+                            &replacement_revision,
+                            &payload,
+                            &i64_revision(expected).map_err(PostgresCasAttemptError::Store)?,
+                        ],
+                    )
+                    .map_err(|error| PostgresCasAttemptError::Postgres {
+                        phase: PostgresFailurePhase::Write,
+                        error,
+                    })?;
+                if changed != 1 {
+                    return Ok(false);
+                }
+                tx.commit()
+                    .map_err(|error| PostgresCasAttemptError::Postgres {
+                        phase: PostgresFailurePhase::Commit,
+                        error,
+                    })?;
+                Ok(true)
+            }
+        }
     }
 
     pub fn migrate(&self) -> Result<(), PostgresUnifiedStoreError> {
@@ -141,76 +420,7 @@ impl UnifiedFencedStore for PostgresUnifiedFencedStore {
         expected_revision: Option<u64>,
         replacement: UnifiedActionRecord,
     ) -> Result<bool, Self::Error> {
-        if replacement.binding.action_id != *action_id {
-            return Err(PostgresUnifiedStoreError::InvalidTransition);
-        }
-        let replacement_revision = i64_revision(replacement.revision)?;
-        let payload = encode_record(&replacement);
-        let mut client = self.connect()?;
-        let mut tx = client.transaction()?;
-
-        match expected_revision {
-            None => {
-                if replacement.revision != 0 {
-                    return Err(PostgresUnifiedStoreError::InvalidTransition);
-                }
-                let changed = tx.execute(
-                    &format!(
-                        "INSERT INTO {} (action_id, revision, payload, updated_at) \
-                         VALUES ($1, $2, $3, clock_timestamp()) \
-                         ON CONFLICT (action_id) DO NOTHING",
-                        quoted_identifier(&self.table)
-                    ),
-                    &[&action_id.as_str(), &replacement_revision, &payload],
-                )?;
-                tx.commit()?;
-                Ok(changed == 1)
-            }
-            Some(expected) => {
-                let row = tx.query_opt(
-                    &format!(
-                        "SELECT revision, payload FROM {} WHERE action_id = $1 FOR UPDATE",
-                        quoted_identifier(&self.table)
-                    ),
-                    &[&action_id.as_str()],
-                )?;
-                let Some(row) = row else {
-                    tx.rollback()?;
-                    return Ok(false);
-                };
-                let current = decode_row(row)?;
-                if current.revision != expected {
-                    tx.rollback()?;
-                    return Ok(false);
-                }
-                let now_row = tx.query_one(
-                    "SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))::BIGINT",
-                    &[],
-                )?;
-                let db_now = Timestamp::new(now_row.get::<_, i64>(0));
-                validate_database_transition(&current, &replacement, db_now)?;
-
-                let changed = tx.execute(
-                    &format!(
-                        "UPDATE {} SET revision = $2, payload = $3, updated_at = clock_timestamp() \
-                         WHERE action_id = $1 AND revision = $4",
-                        quoted_identifier(&self.table)
-                    ),
-                    &[
-                        &action_id.as_str(),
-                        &replacement_revision,
-                        &payload,
-                        &i64_revision(expected)?,
-                    ],
-                )?;
-                if changed != 1 {
-                    tx.rollback()?;
-                    return Ok(false);
-                }
-                tx.commit()?;
-                Ok(true)
-            }
-        }
+        self.compare_and_swap_resilient(action_id, expected_revision, replacement)
     }
 }
 
