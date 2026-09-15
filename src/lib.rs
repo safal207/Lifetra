@@ -5,13 +5,15 @@
 //! resonance, synergy, bounded trajectory beads, proof-carrying bead chains,
 //! proof-backed orientation deltas, bounded correction policies, decision authority,
 //! identity-preserving execution receipts, reconciliation-gated retry authority,
-//! append-only physical attempt ledgers, and fsync-backed durable recovery journals.
+//! append-only physical attempt ledgers, fsync-backed durable recovery journals,
+//! and provider-neutral reconciliation adapters.
 
 mod attempt_ledger;
 mod correction_policy;
 mod durable_journal;
 mod execution_receipt;
 mod orientation_delta;
+mod provider_reconciliation;
 mod reconciliation;
 mod safety_authority;
 
@@ -23,7 +25,8 @@ pub use correction_policy::{
     CorrectionBlock, CorrectionDecision, CorrectionMemory, CorrectionPolicy, OrientationAdjustment,
 };
 pub use durable_journal::{
-    DurableJournal, JournalError, PreparedAttempt, RecoveredRuntime, RecoveryDirective,
+    DurableJournal, JournalError, PreparedAttempt, PreparedReconciliationReceipt, RecoveredRuntime,
+    RecoveryDirective,
 };
 pub use execution_receipt::{
     ActionId, AuthorityTicket, DispatchReceipt, ExecutionBlock, ExecutionOutcome, ExecutionStatus,
@@ -43,6 +46,11 @@ pub use lifetra_resonance::ResonanceState;
 pub use lifetra_synergy::SynergyState;
 pub use lifetra_trajectory::{LifecycleStage, StateTransition, TrajectoryState};
 pub use orientation_delta::{OrientationBlock, OrientationDelta, ProvenOrientation};
+pub use provider_reconciliation::{
+    ProviderObservation, ProviderReconciliationAdapter, ProviderReconciliationError,
+    ProviderReconciliationPhase, ProviderReconciliationQuery, ProviderReconciliationResult,
+    ProviderReconciler,
+};
 pub use reconciliation::{
     IdempotencyBinding, ReconciliationOutcome, ReconciliationReceipt, RetryAuthority, RetryBlock,
     RetryContext, RetryDecision, RetryPolicy, RetryReason, RetryVerdict,
