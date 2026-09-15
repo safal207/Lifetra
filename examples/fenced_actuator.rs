@@ -46,9 +46,7 @@ fn main() {
         .expect("stale request should return rejection evidence");
     assert_eq!(
         stale_receipt.outcome,
-        FencedActuatorOutcome::Rejected(FencedActuatorRejection::StaleEpoch {
-            current_epoch: 2,
-        })
+        FencedActuatorOutcome::Rejected(FencedActuatorRejection::StaleEpoch { current_epoch: 2 })
     );
     assert_eq!(actuator.applied_count().expect("effect count"), 0);
 
@@ -82,5 +80,8 @@ fn main() {
     println!("stale_outcome={:?}", stale_receipt.outcome);
     println!("current_outcome={:?}", applied.outcome);
     println!("duplicate_outcome={:?}", duplicate.outcome);
-    println!("effects_applied={}", actuator.applied_count().expect("count"));
+    println!(
+        "effects_applied={}",
+        actuator.applied_count().expect("count")
+    );
 }
