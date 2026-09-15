@@ -148,6 +148,7 @@ pub enum AttemptBlock {
     RetryDecisionDoesNotAuthorizeDispatch,
     InitialAttemptAlreadyRecorded,
     UnexpectedAttemptOrdinal { expected: u32, received: u32 },
+    DuplicateAttemptOrdinal { ordinal: u32 },
     PreviousAttemptNotRetrySafe,
     RetryProofLineageMissing,
     PriorAttemptSucceeded,
@@ -195,7 +196,7 @@ impl AttemptLedger {
 
     pub fn retry_context(&self) -> RetryContext {
         RetryContext {
-            redispatches_used: self.attempts.len().saturating_sub(1) as u32,
+            redispatches_used: self.latest().map_or(0, |attempt| attempt.id.ordinal),
         }
     }
 
@@ -207,9 +208,9 @@ impl AttemptLedger {
 
     /// Records one physical dispatch authorized by a retry decision.
     ///
-    /// Initial dispatch is attempt `0`. A redispatch ordinal must exactly match
-    /// the next ledger ordinal and the previous attempt must already have a
-    /// retry-safe evidence state (`Failed` or `NoEffectConfirmed`).
+    /// Initial dispatch is attempt `0`. A normal redispatch must immediately
+    /// follow the latest locally observed dispatch and the previous attempt must
+    /// already have retry-safe evidence (`Failed` or `NoEffectConfirmed`).
     pub fn record_dispatch(
         &mut self,
         decision: &RetryDecision,
@@ -217,12 +218,7 @@ impl AttemptLedger {
         proof_ref: impl Into<String>,
     ) -> Result<&AttemptRecord, AttemptBlock> {
         self.validate_decision_identity(decision)?;
-        if self.has_conflicting_evidence() {
-            return Err(AttemptBlock::ConflictingEvidence);
-        }
-        if self.prior_attempt_succeeded() {
-            return Err(AttemptBlock::PriorAttemptSucceeded);
-        }
+        self.validate_common_dispatch_guards()?;
 
         let ordinal = match decision.verdict {
             RetryVerdict::InitialDispatchAllowed => {
@@ -232,7 +228,11 @@ impl AttemptLedger {
                 0
             }
             RetryVerdict::RedispatchAllowed { ordinal } => {
-                let expected = self.attempts.len() as u32;
+                let previous = self
+                    .attempts
+                    .last()
+                    .ok_or(AttemptBlock::PreviousAttemptNotRetrySafe)?;
+                let expected = previous.id.ordinal + 1;
                 if ordinal != expected {
                     return Err(AttemptBlock::UnexpectedAttemptOrdinal {
                         expected,
@@ -240,10 +240,6 @@ impl AttemptLedger {
                     });
                 }
 
-                let previous = self
-                    .attempts
-                    .last()
-                    .ok_or(AttemptBlock::PreviousAttemptNotRetrySafe)?;
                 let required_proof = previous
                     .retry_safe_resolution_proof()
                     .ok_or(AttemptBlock::PreviousAttemptNotRetrySafe)?;
@@ -267,32 +263,70 @@ impl AttemptLedger {
             }
         };
 
-        if dispatched_at < self.ticket.issued_at {
-            return Err(AttemptBlock::TemporalOrderViolation);
+        self.append_dispatch(decision, ordinal, dispatched_at, proof_ref)
+    }
+
+    /// Records a physical redispatch whose immediately preceding ordinal was
+    /// resolved externally without a local dispatch receipt.
+    ///
+    /// This deliberately permits a proof-backed ordinal gap in the local
+    /// dispatch ledger instead of fabricating a dispatch receipt for an
+    /// ambiguous prepared attempt.
+    pub fn record_dispatch_after_external_resolution(
+        &mut self,
+        decision: &RetryDecision,
+        dispatched_at: Timestamp,
+        proof_ref: impl Into<String>,
+        previous_ordinal: u32,
+        previous_resolution_proof: &str,
+    ) -> Result<&AttemptRecord, AttemptBlock> {
+        self.validate_decision_identity(decision)?;
+        self.validate_common_dispatch_guards()?;
+
+        let ordinal = match decision.verdict {
+            RetryVerdict::RedispatchAllowed { ordinal } => ordinal,
+            RetryVerdict::InitialDispatchAllowed
+            | RetryVerdict::ReconcileFirst
+            | RetryVerdict::CloseSucceeded
+            | RetryVerdict::CloseFailed
+            | RetryVerdict::Block => {
+                return Err(AttemptBlock::RetryDecisionDoesNotAuthorizeDispatch)
+            }
+        };
+        let expected = previous_ordinal + 1;
+        if ordinal != expected {
+            return Err(AttemptBlock::UnexpectedAttemptOrdinal {
+                expected,
+                received: ordinal,
+            });
         }
-
-        let proof_ref = proof_ref.into();
-        if proof_ref.trim().is_empty() {
-            return Err(AttemptBlock::EmptyDispatchProof);
-        }
-
-        let id = AttemptId::new(self.ticket.action_id.clone(), ordinal);
-        self.attempts.push(AttemptRecord {
-            id: id.clone(),
-            dispatch: AttemptDispatchReceipt {
-                attempt_id: id,
-                dispatched_at,
-                proof_ref,
-            },
-            authorization_proof_refs: decision.proof_refs.clone(),
-            reconciliations: Vec::new(),
-            external: None,
-        });
-
-        Ok(self
+        if self
             .attempts
-            .last()
-            .expect("attempt was appended immediately before lookup"))
+            .iter()
+            .any(|attempt| attempt.id.ordinal == ordinal)
+        {
+            return Err(AttemptBlock::DuplicateAttemptOrdinal { ordinal });
+        }
+        if let Some(latest) = self.attempts.last() {
+            if ordinal <= latest.id.ordinal {
+                return Err(AttemptBlock::UnexpectedAttemptOrdinal {
+                    expected: latest.id.ordinal + 1,
+                    received: ordinal,
+                });
+            }
+            if dispatched_at < latest.latest_observed_at() {
+                return Err(AttemptBlock::TemporalOrderViolation);
+            }
+        }
+        if !decision
+            .proof_refs
+            .iter()
+            .any(|proof| proof == previous_resolution_proof)
+        {
+            return Err(AttemptBlock::RetryProofLineageMissing);
+        }
+
+        self.append_dispatch(decision, ordinal, dispatched_at, proof_ref)
     }
 
     pub fn record_external_outcome(
@@ -421,10 +455,63 @@ impl AttemptLedger {
         Ok(())
     }
 
+    fn validate_common_dispatch_guards(&self) -> Result<(), AttemptBlock> {
+        if self.has_conflicting_evidence() {
+            return Err(AttemptBlock::ConflictingEvidence);
+        }
+        if self.prior_attempt_succeeded() {
+            return Err(AttemptBlock::PriorAttemptSucceeded);
+        }
+        Ok(())
+    }
+
+    fn append_dispatch(
+        &mut self,
+        decision: &RetryDecision,
+        ordinal: u32,
+        dispatched_at: Timestamp,
+        proof_ref: impl Into<String>,
+    ) -> Result<&AttemptRecord, AttemptBlock> {
+        if dispatched_at < self.ticket.issued_at {
+            return Err(AttemptBlock::TemporalOrderViolation);
+        }
+        if self
+            .attempts
+            .iter()
+            .any(|attempt| attempt.id.ordinal == ordinal)
+        {
+            return Err(AttemptBlock::DuplicateAttemptOrdinal { ordinal });
+        }
+
+        let proof_ref = proof_ref.into();
+        if proof_ref.trim().is_empty() {
+            return Err(AttemptBlock::EmptyDispatchProof);
+        }
+
+        let id = AttemptId::new(self.ticket.action_id.clone(), ordinal);
+        self.attempts.push(AttemptRecord {
+            id: id.clone(),
+            dispatch: AttemptDispatchReceipt {
+                attempt_id: id,
+                dispatched_at,
+                proof_ref,
+            },
+            authorization_proof_refs: decision.proof_refs.clone(),
+            reconciliations: Vec::new(),
+            external: None,
+        });
+        self.attempts.sort_by_key(|attempt| attempt.id.ordinal);
+
+        self.attempts
+            .iter()
+            .find(|attempt| attempt.id.ordinal == ordinal)
+            .ok_or(AttemptBlock::UnknownAttempt { ordinal })
+    }
+
     fn attempt_mut(&mut self, ordinal: u32) -> Result<&mut AttemptRecord, AttemptBlock> {
         self.attempts
-            .get_mut(ordinal as usize)
-            .filter(|attempt| attempt.id.ordinal == ordinal)
+            .iter_mut()
+            .find(|attempt| attempt.id.ordinal == ordinal)
             .ok_or(AttemptBlock::UnknownAttempt { ordinal })
     }
 
@@ -562,6 +649,32 @@ mod tests {
         assert_eq!(second_id.ordinal, 1);
         assert_eq!(second_id.action_id, expected_action);
         assert_eq!(ledger.binding.key, "idem:ledger:1");
+        assert_eq!(ledger.retry_context().redispatches_used, 1);
+    }
+
+    #[test]
+    fn external_resolution_can_justify_gap_without_fake_dispatch() {
+        let mut ledger = ledger();
+        let retry = redispatch_decision(
+            &ledger.ticket,
+            &ledger.binding,
+            1,
+            "proof:provider:no-effect:0",
+        );
+
+        let attempt = ledger
+            .record_dispatch_after_external_resolution(
+                &retry,
+                Timestamp::new(13),
+                "proof:dispatch:1",
+                0,
+                "proof:provider:no-effect:0",
+            )
+            .expect("provider proof should justify ordinal gap");
+
+        assert_eq!(attempt.id.ordinal, 1);
+        assert_eq!(ledger.attempts().len(), 1);
+        assert!(ledger.attempts().iter().all(|attempt| attempt.id.ordinal != 0));
         assert_eq!(ledger.retry_context().redispatches_used, 1);
     }
 
