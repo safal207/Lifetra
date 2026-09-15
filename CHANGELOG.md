@@ -61,7 +61,13 @@
 - preserve reconciliation-first semantics for rejected/unknown receipts and require explicit retry-proof lineage before a later attempt is prepared;
 - expose record-level CAS contention instead of partially applying only a lease, attempt, evidence, or projection subset;
 - include `InMemoryUnifiedFencedStore` only as a process-local atomic reference backend and keep arbitrary external side effects outside the store transaction unless the provider shares the same transactional substrate;
-- add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, reconciliation-retry, attempt-ledger, durable-journal, provider-reconciliation, recovery-lease-fencing, fenced-actuator, actuator-receipt-bridge, and unified-fenced-store examples plus architecture documentation.
+- add `PostgresUnifiedFencedStore` and `PostgresUnifiedFencedRuntime` as a shared PostgreSQL implementation of the unified action record contract;
+- execute existing-record CAS under a PostgreSQL transaction with `SELECT ... FOR UPDATE`, revision validation, and `clock_timestamp()`-based transition checks before committing the whole replacement record;
+- use PostgreSQL time as lease authority and revalidate lease-sensitive prepare/dispatch mutations inside the locked CAS transaction, so an expiry between preflight and commit cannot silently authorize new execution intent;
+- serialize concurrent schema startup with a transaction-scoped PostgreSQL advisory lock, avoiding system-catalog races around simultaneous `CREATE TABLE IF NOT EXISTS` calls;
+- exercise the PostgreSQL backend in CI against a real PostgreSQL 17 service, including independent-connection CAS contention, real DB-time expiry, late evidence admission, and proof-lineage retry persistence;
+- keep arbitrary remote payments, chains, and HTTP side effects outside the SQL transaction unless the external resource explicitly participates in the same transactional substrate;
+- add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, reconciliation-retry, attempt-ledger, durable-journal, provider-reconciliation, recovery-lease-fencing, fenced-actuator, actuator-receipt-bridge, unified-fenced-store, and postgres-unified-store examples plus architecture documentation.
 
 ## 0.1.0
 
