@@ -21,7 +21,11 @@
 - add explicit autonomy levels, three-valued human approval, quorum requirements, soft autonomous limits, and non-overridable hard limits;
 - block insufficient proof even when approval exists, preserving the invariant that authority cannot manufacture evidence;
 - distinguish `Allow(Automatic)`, `Allow(ApprovedManual)`, `RequireApproval`, and `Block` authority outcomes;
-- add recovery, bead-chain, orientation-delta, correction-loop, and authority-gate examples plus architecture documentation.
+- add stable `ActionId`, `AuthorityTicket`, `DispatchReceipt`, `ExternalExecutionReceipt`, and `ExecutionTrace`;
+- keep authorization, dispatch, and externally confirmed effect as separate proof boundaries;
+- preserve `DispatchedEffectUnknown` so missing external acknowledgement is neither success nor failure;
+- reject duplicate receipts and temporally invalid receipt ordering instead of silently rewriting execution history;
+- add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, and execution-receipt examples plus architecture documentation.
 
 ## 0.1.0
 
