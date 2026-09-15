@@ -3,14 +3,20 @@
 //! This crate re-exports the core domain types for modeling living trajectories
 //! of ideas and entities across causality, orientation, trajectory, reflection,
 //! resonance, synergy, bounded trajectory beads, proof-carrying bead chains,
-//! proof-backed orientation deltas, bounded correction policies, and decision authority.
+//! proof-backed orientation deltas, bounded correction policies, decision authority,
+//! and identity-preserving execution receipts.
 
 mod correction_policy;
+mod execution_receipt;
 mod orientation_delta;
 mod safety_authority;
 
 pub use correction_policy::{
     CorrectionBlock, CorrectionDecision, CorrectionMemory, CorrectionPolicy, OrientationAdjustment,
+};
+pub use execution_receipt::{
+    ActionId, AuthorityTicket, DispatchReceipt, ExecutionBlock, ExecutionOutcome, ExecutionStatus,
+    ExecutionTrace, ExternalExecutionReceipt,
 };
 pub use lifetra_bead::{
     AggregationBlock, BeadAggregate, BeadChain, BeadCommit, BeadId, BeadScale, ChainBlock,
@@ -187,6 +193,63 @@ mod tests {
         assert_eq!(
             gate.verdict,
             AuthorityVerdict::Allow(ExecutionMode::Automatic)
+        );
+    }
+
+    #[test]
+    fn facade_exposes_authority_ticket_and_execution_receipts() {
+        let bead = TrajectoryBead::new(
+            BeadId::new("bead:execution"),
+            BeadScale::Event,
+            Timestamp::new(0),
+            Timestamp::new(1),
+        )
+        .with_evidence(EvidenceRef::new(
+            "proof:execution",
+            EvidenceStatus::Supported,
+            "verified movement",
+        ));
+        let commit = bead
+            .prove_transition("move", "verified")
+            .expect("bead should commit");
+        let proven =
+            ProvenOrientation::from_commit(OrientationVector::new(0.55, 0.5, 0.8, 0.5), &commit)
+                .expect("commit should back movement");
+        let delta = OrientationDelta::between(OrientationVector::new(0.60, 0.5, 0.8, 0.5), proven);
+        let correction = CorrectionPolicy::new(0.5, 0.01, 0.0, 0.05)
+            .expect("valid correction policy")
+            .propose(&delta, CorrectionMemory::default())
+            .expect("proof-backed delta should produce correction");
+        let envelope =
+            SafetyEnvelope::new(AutonomyLevel::BoundedAutomatic, 1, 0, false, 0.10, 0.25)
+                .expect("valid safety envelope");
+        let authority = DecisionAuthority::new(envelope).evaluate(
+            &correction,
+            AuthorityContext::default(),
+        );
+        let ticket = AuthorityTicket::issue(
+            ActionId::new("action:execution").expect("valid action id"),
+            &authority,
+            Timestamp::new(2),
+        )
+        .expect("allowed authority should issue ticket");
+        let mut trace = ExecutionTrace::new(ticket);
+
+        trace
+            .record_dispatch(Timestamp::new(3), "proof:dispatch")
+            .expect("dispatch should record");
+        assert_eq!(trace.status(), ExecutionStatus::DispatchedEffectUnknown);
+
+        trace
+            .record_external_outcome(
+                Timestamp::new(4),
+                ExecutionOutcome::Succeeded,
+                "proof:external",
+            )
+            .expect("external outcome should record");
+        assert_eq!(
+            trace.status(),
+            ExecutionStatus::EffectConfirmed(ExecutionOutcome::Succeeded)
         );
     }
 }
