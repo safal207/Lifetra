@@ -34,14 +34,9 @@ fn main() {
     let journal = DurableJournal::create(&path, ticket, binding).expect("journal should create");
     let store = InMemoryRecoveryLeaseStore::default();
     let worker_a = RecoveryWorkerId::new("worker-a").expect("valid worker");
-    let mut fenced = FencedDurableJournal::acquire(
-        journal,
-        store.clone(),
-        worker_a,
-        Timestamp::new(100),
-        10,
-    )
-    .expect("worker A should acquire epoch 1");
+    let mut fenced =
+        FencedDurableJournal::acquire(journal, store.clone(), worker_a, Timestamp::new(100), 10)
+            .expect("worker A should acquire epoch 1");
 
     let permit = fenced
         .prepare_attempt(&initial, Timestamp::new(101), Timestamp::new(101))
