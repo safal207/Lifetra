@@ -1,0 +1,62 @@
+name: temporary postgres DB-time acquire hardening
+
+on:
+  push:
+    branches:
+      - feat/trajectory-bead-graph
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/trajectory-bead-graph
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Harden DB-time acquire race
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/postgres_unified_store.rs')
+          text = p.read_text()
+
+          old_acquire = '''    pub fn acquire(\n        &self,\n        action_id: &ActionId,\n        owner: RecoveryWorkerId,\n        ttl_seconds: i64,\n    ) -> Result<UnifiedFencingToken, UnifiedFencedBlock<PostgresUnifiedStoreError>> {\n        let now = self\n            .store()\n            .authoritative_now()\n            .map_err(UnifiedFencedBlock::Store)?;\n        self.runtime.acquire(action_id, owner, now, ttl_seconds)\n    }\n'''
+          new_acquire = '''    pub fn acquire(\n        &self,\n        action_id: &ActionId,\n        owner: RecoveryWorkerId,\n        ttl_seconds: i64,\n    ) -> Result<UnifiedFencingToken, UnifiedFencedBlock<PostgresUnifiedStoreError>> {\n        const DB_TIME_RETRIES: usize = 3;\n\n        for attempt in 0..DB_TIME_RETRIES {\n            let now = self\n                .store()\n                .authoritative_now()\n                .map_err(UnifiedFencedBlock::Store)?;\n            match self\n                .runtime\n                .acquire(action_id, owner.clone(), now, ttl_seconds)\n            {\n                Err(UnifiedFencedBlock::Store(\n                    PostgresUnifiedStoreError::DatabaseLeaseExpired { .. },\n                )) if attempt + 1 < DB_TIME_RETRIES => continue,\n                result => return result,\n            }\n        }\n        unreachable!("DB_TIME_RETRIES is non-zero")\n    }\n'''
+          if old_acquire not in text:
+              raise SystemExit('acquire block not found')
+          text = text.replace(old_acquire, new_acquire)
+
+          old_initial = '''        (None, Some(next)) => {\n            if next.epoch != 1 || next.revision != 0 || next.expires_at <= db_now {\n                return Err(PostgresUnifiedStoreError::InvalidTransition);\n            }\n            Ok(())\n        }\n'''
+          new_initial = '''        (None, Some(next)) => {\n            if next.epoch != 1 || next.revision != 0 {\n                return Err(PostgresUnifiedStoreError::InvalidTransition);\n            }\n            if next.expires_at <= db_now {\n                return Err(PostgresUnifiedStoreError::DatabaseLeaseExpired {\n                    epoch: next.epoch,\n                });\n            }\n            Ok(())\n        }\n'''
+          if old_initial not in text:
+              raise SystemExit('initial lease block not found')
+          text = text.replace(old_initial, new_initial)
+
+          old_takeover = '''            if next.revision != 0 || next.expires_at <= db_now {\n                return Err(PostgresUnifiedStoreError::InvalidTransition);\n            }\n            Ok(())\n'''
+          new_takeover = '''            if next.revision != 0 {\n                return Err(PostgresUnifiedStoreError::InvalidTransition);\n            }\n            if next.expires_at <= db_now {\n                return Err(PostgresUnifiedStoreError::DatabaseLeaseExpired {\n                    epoch: next.epoch,\n                });\n            }\n            Ok(())\n'''
+          if old_takeover not in text:
+              raise SystemExit('takeover block not found')
+          text = text.replace(old_takeover, new_takeover, 1)
+
+          # The expiry test is about commit-time rejection after an actually expired lease;
+          # use two seconds so acquiring the seed lease is not itself a boundary stressor.
+          text = text.replace(
+              'RecoveryWorkerId::new("expired-worker").expect("worker"),\n                1,\n            )\n            .expect("lease");',
+              'RecoveryWorkerId::new("expired-worker").expect("worker"),\n                2,\n            )\n            .expect("lease");'
+          )
+          p.write_text(text)
+          PY
+          cargo fmt --all
+      - name: Commit hardening
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/postgres_unified_store.rs
+          git commit -m "fix: retry PostgreSQL acquire across DB-time boundary"
+          git push origin HEAD:feat/trajectory-bead-graph
