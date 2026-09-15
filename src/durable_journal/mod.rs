@@ -329,7 +329,9 @@ impl DurableJournal {
                     .iter()
                     .any(|proof| proof == &resolution.proof_ref)
                 {
-                    return Err(JournalError::Attempt(AttemptBlock::RetryProofLineageMissing));
+                    return Err(JournalError::Attempt(
+                        AttemptBlock::RetryProofLineageMissing,
+                    ));
                 }
             } else {
                 let mut probe = recovered.ledger.clone();
