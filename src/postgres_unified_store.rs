@@ -75,7 +75,13 @@ impl PostgresUnifiedFencedStore {
 
     pub fn migrate(&self) -> Result<(), PostgresUnifiedStoreError> {
         let mut client = self.connect()?;
-        client.batch_execute(&format!(
+        let mut tx = client.transaction()?;
+        // PostgreSQL can still race in system catalogs when multiple sessions run
+        // CREATE TABLE IF NOT EXISTS for the same new relation concurrently. Serialize
+        // this tiny DDL boundary across Lifetra starters; the lock is released at commit.
+        let migration_lock: i64 = 0x4c49_4645_5452_4101;
+        tx.query_one("SELECT pg_advisory_xact_lock($1)", &[&migration_lock])?;
+        tx.batch_execute(&format!(
             "CREATE TABLE IF NOT EXISTS {} (\
                 action_id TEXT PRIMARY KEY,\
                 revision BIGINT NOT NULL CHECK (revision >= 0),\
@@ -84,6 +90,7 @@ impl PostgresUnifiedFencedStore {
             )",
             quoted_identifier(&self.table)
         ))?;
+        tx.commit()?;
         Ok(())
     }
 
