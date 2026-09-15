@@ -1,8 +1,8 @@
 use lifetra::{
     ApprovalState, AuthorityContext, AuthorityVerdict, AutonomyLevel, BeadId, BeadScale,
     CorrectionMemory, CorrectionPolicy, DecisionAuthority, EvidenceRef, EvidenceStatus,
-    ExecutionMode, OrientationDelta, OrientationVector, ProvenOrientation, SafetyEnvelope, Timestamp,
-    TrajectoryBead,
+    ExecutionMode, OrientationDelta, OrientationVector, ProvenOrientation, SafetyEnvelope,
+    Timestamp, TrajectoryBead,
 };
 
 fn main() {
@@ -31,15 +31,8 @@ fn main() {
         .propose(&delta, CorrectionMemory::default())
         .expect("proof-backed delta should produce correction");
 
-    let envelope = SafetyEnvelope::new(
-        AutonomyLevel::BoundedAutomatic,
-        1,
-        0,
-        false,
-        0.08,
-        0.20,
-    )
-    .expect("valid safety envelope");
+    let envelope = SafetyEnvelope::new(AutonomyLevel::BoundedAutomatic, 1, 0, false, 0.08, 0.20)
+        .expect("valid safety envelope");
     let authority = DecisionAuthority::new(envelope);
 
     let pending = authority.evaluate(&correction, AuthorityContext::default());
