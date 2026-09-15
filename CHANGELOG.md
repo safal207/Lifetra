@@ -32,7 +32,11 @@
 - add append-only `AttemptLedger`, `AttemptId`, and attempt-scoped dispatch/reconciliation/external receipts so one logical action can preserve multiple physical attempts;
 - derive redispatch count from attempt history and require each redispatch decision to carry the previous attempt's retry-safe resolution proof;
 - preserve late and contradictory attempt evidence, blocking further retry when an older attempt later succeeds or evidence disagrees;
-- add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, reconciliation-retry, and attempt-ledger examples plus architecture documentation.
+- add fsync-backed `DurableJournal` with write-ahead `PreparedAttempt` records before external side effects;
+- replay durable records into `AttemptLedger` after restart and recover explicit directives for prepared ambiguity, dispatched unknown effects, retry evaluation, success closure, or blocking;
+- treat a recovered prepared-only attempt as ambiguous and reconcile-first instead of converting it into blind redispatch permission;
+- repair an incomplete trailing journal record while rejecting complete checksum corruption or sequence gaps;
+- add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, reconciliation-retry, attempt-ledger, and durable-journal examples plus architecture documentation.
 
 ## 0.1.0
 
