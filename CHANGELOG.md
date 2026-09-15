@@ -36,7 +36,11 @@
 - replay durable records into `AttemptLedger` after restart and recover explicit directives for prepared ambiguity, dispatched unknown effects, retry evaluation, success closure, or blocking;
 - treat a recovered prepared-only attempt as ambiguous and reconcile-first instead of converting it into blind redispatch permission;
 - repair an incomplete trailing journal record while rejecting complete checksum corruption or sequence gaps;
-- add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, reconciliation-retry, attempt-ledger, and durable-journal examples plus architecture documentation.
+- add provider-neutral `ProviderReconciliationAdapter` and `ProviderReconciler` to turn durable reconcile directives into persisted external proof and retry/close verdicts;
+- keep provider observations separate from local dispatch receipts, including proof-backed ordinal gaps after externally resolved prepared attempts;
+- require provider observations to be durably recorded before returning retry permission, while adapter failures leave journal history unchanged;
+- keep generic timeout, silence, or not-found semantics at `StillUnknown` unless provider evidence actually establishes `NoEffectConfirmed`;
+- add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, reconciliation-retry, attempt-ledger, durable-journal, and provider-reconciliation examples plus architecture documentation.
 
 ## 0.1.0
 
