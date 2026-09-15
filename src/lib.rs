@@ -178,15 +178,9 @@ mod tests {
             .expect("valid correction policy")
             .propose(&delta, CorrectionMemory::default())
             .expect("proof-backed delta should produce correction");
-        let envelope = SafetyEnvelope::new(
-            AutonomyLevel::BoundedAutomatic,
-            1,
-            0,
-            false,
-            0.10,
-            0.25,
-        )
-        .expect("valid safety envelope");
+        let envelope =
+            SafetyEnvelope::new(AutonomyLevel::BoundedAutomatic, 1, 0, false, 0.10, 0.25)
+                .expect("valid safety envelope");
         let authority = DecisionAuthority::new(envelope);
         let gate = authority.evaluate(&correction, AuthorityContext::default());
 
