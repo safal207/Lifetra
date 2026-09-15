@@ -49,3 +49,4 @@ lifetra-reflect.workspace = true
 lifetra-resonance.workspace = true
 lifetra-synergy.workspace = true
 lifetra-bead.workspace = true
+postgres = "0.19"
