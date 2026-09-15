@@ -674,7 +674,10 @@ mod tests {
 
         assert_eq!(attempt.id.ordinal, 1);
         assert_eq!(ledger.attempts().len(), 1);
-        assert!(ledger.attempts().iter().all(|attempt| attempt.id.ordinal != 0));
+        assert!(ledger
+            .attempts()
+            .iter()
+            .all(|attempt| attempt.id.ordinal != 0));
         assert_eq!(ledger.retry_context().redispatches_used, 1);
     }
 
