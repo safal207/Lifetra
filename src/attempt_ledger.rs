@@ -109,9 +109,10 @@ impl AttemptRecord {
 
     fn retry_safe_resolution_proof(&self) -> Option<&str> {
         match self.status() {
-            AttemptStatus::EffectConfirmed(ExecutionOutcome::Failed) => {
-                self.external.as_ref().map(|receipt| receipt.proof_ref.as_str())
-            }
+            AttemptStatus::EffectConfirmed(ExecutionOutcome::Failed) => self
+                .external
+                .as_ref()
+                .map(|receipt| receipt.proof_ref.as_str()),
             AttemptStatus::Reconciled(ReconciliationOutcome::EffectFailed)
             | AttemptStatus::Reconciled(ReconciliationOutcome::NoEffectConfirmed) => self
                 .latest_reconciliation()
@@ -387,20 +388,25 @@ impl AttemptLedger {
                 dispatched_at: latest.dispatch.dispatched_at,
                 proof_ref: latest.dispatch.proof_ref.clone(),
             }),
-            external: latest.external.as_ref().map(|external| ExternalExecutionReceipt {
-                action_id: self.ticket.action_id.clone(),
-                observed_at: external.observed_at,
-                outcome: external.outcome,
-                proof_ref: external.proof_ref.clone(),
-            }),
+            external: latest
+                .external
+                .as_ref()
+                .map(|external| ExternalExecutionReceipt {
+                    action_id: self.ticket.action_id.clone(),
+                    observed_at: external.observed_at,
+                    outcome: external.outcome,
+                    proof_ref: external.proof_ref.clone(),
+                }),
         };
 
-        let reconciliation = latest.latest_reconciliation().map(|receipt| ReconciliationReceipt {
-            action_id: self.ticket.action_id.clone(),
-            observed_at: receipt.observed_at,
-            outcome: receipt.outcome,
-            proof_ref: receipt.proof_ref.clone(),
-        });
+        let reconciliation = latest
+            .latest_reconciliation()
+            .map(|receipt| ReconciliationReceipt {
+                action_id: self.ticket.action_id.clone(),
+                observed_at: receipt.observed_at,
+                outcome: receipt.outcome,
+                proof_ref: receipt.proof_ref.clone(),
+            });
 
         Ok((trace, reconciliation, self.retry_context()))
     }
@@ -545,12 +551,7 @@ mod tests {
                 "proof:no-effect:0",
             )
             .expect("reconciliation");
-        let retry = redispatch_decision(
-            &ledger.ticket,
-            &ledger.binding,
-            1,
-            "proof:no-effect:0",
-        );
+        let retry = redispatch_decision(&ledger.ticket, &ledger.binding, 1, "proof:no-effect:0");
 
         let second_id = ledger
             .record_dispatch(&retry, Timestamp::new(13), "proof:dispatch:1")
@@ -579,12 +580,8 @@ mod tests {
                 "proof:no-effect:0",
             )
             .expect("reconciliation");
-        let retry = redispatch_decision(
-            &ledger.ticket,
-            &ledger.binding,
-            1,
-            "proof:wrong-resolution",
-        );
+        let retry =
+            redispatch_decision(&ledger.ticket, &ledger.binding, 1, "proof:wrong-resolution");
 
         assert_eq!(
             ledger.record_dispatch(&retry, Timestamp::new(13), "proof:dispatch:1"),
@@ -607,12 +604,7 @@ mod tests {
                 "proof:no-effect:0",
             )
             .expect("reconciliation");
-        let retry = redispatch_decision(
-            &ledger.ticket,
-            &ledger.binding,
-            1,
-            "proof:no-effect:0",
-        );
+        let retry = redispatch_decision(&ledger.ticket, &ledger.binding, 1, "proof:no-effect:0");
         ledger
             .record_dispatch(&retry, Timestamp::new(13), "proof:dispatch:1")
             .expect("redispatch");
@@ -627,7 +619,10 @@ mod tests {
 
         let (trace, reconciliation, context) = ledger.retry_inputs().expect("safe retry view");
 
-        assert_eq!(trace.dispatch.expect("dispatch").proof_ref, "proof:dispatch:1");
+        assert_eq!(
+            trace.dispatch.expect("dispatch").proof_ref,
+            "proof:dispatch:1"
+        );
         assert_eq!(
             reconciliation.expect("reconciliation").outcome,
             ReconciliationOutcome::StillUnknown
@@ -650,12 +645,7 @@ mod tests {
                 "proof:no-effect:0",
             )
             .expect("reconciliation");
-        let retry = redispatch_decision(
-            &ledger.ticket,
-            &ledger.binding,
-            1,
-            "proof:no-effect:0",
-        );
+        let retry = redispatch_decision(&ledger.ticket, &ledger.binding, 1, "proof:no-effect:0");
         ledger
             .record_dispatch(&retry, Timestamp::new(13), "proof:dispatch:1")
             .expect("redispatch");
@@ -669,7 +659,10 @@ mod tests {
             )
             .expect("late external evidence should be preserved");
 
-        assert_eq!(ledger.retry_inputs(), Err(AttemptBlock::ConflictingEvidence));
+        assert_eq!(
+            ledger.retry_inputs(),
+            Err(AttemptBlock::ConflictingEvidence)
+        );
     }
 
     #[test]
@@ -697,6 +690,9 @@ mod tests {
             .expect("external evidence should be recorded");
 
         assert!(ledger.has_conflicting_evidence());
-        assert_eq!(ledger.retry_inputs(), Err(AttemptBlock::ConflictingEvidence));
+        assert_eq!(
+            ledger.retry_inputs(),
+            Err(AttemptBlock::ConflictingEvidence)
+        );
     }
 }
