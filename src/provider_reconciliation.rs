@@ -1,6 +1,6 @@
 use crate::{
-    ActionId, DurableJournal, JournalError, ReconciliationOutcome, RecoveryDirective, RetryAuthority,
-    RetryBlock, RetryDecision, RetryReason, RetryVerdict, Timestamp,
+    ActionId, AttemptBlock, DurableJournal, JournalError, ReconciliationOutcome, RecoveryDirective,
+    RetryAuthority, RetryBlock, RetryDecision, RetryReason, RetryVerdict, Timestamp,
 };
 
 /// Which uncertainty boundary the provider is being asked to resolve.
@@ -58,12 +58,19 @@ pub enum ProviderReconciliationError<E> {
     EmptyProviderProof,
     Adapter(E),
     Journal(JournalError),
+    Attempt(AttemptBlock),
     Retry(RetryBlock),
 }
 
 impl<E> From<JournalError> for ProviderReconciliationError<E> {
     fn from(value: JournalError) -> Self {
         Self::Journal(value)
+    }
+}
+
+impl<E> From<AttemptBlock> for ProviderReconciliationError<E> {
+    fn from(value: AttemptBlock) -> Self {
+        Self::Attempt(value)
     }
 }
 
@@ -238,9 +245,7 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use crate::{
-        AuthorityTicket, BeadId, ExecutionMode, IdempotencyBinding, RetryPolicy,
-    };
+    use crate::{AuthorityTicket, BeadId, ExecutionMode, IdempotencyBinding, RetryPolicy};
 
     use super::*;
 
@@ -342,7 +347,11 @@ mod tests {
         assert_eq!(recovered.next_attempt_ordinal, 2);
         assert_eq!(recovered.ledger.attempts().len(), 1);
         assert_eq!(recovered.ledger.attempts()[0].id.ordinal, 1);
-        assert!(recovered.ledger.attempts().iter().all(|attempt| attempt.id.ordinal != 0));
+        assert!(recovered
+            .ledger
+            .attempts()
+            .iter()
+            .all(|attempt| attempt.id.ordinal != 0));
         fs::remove_file(path).ok();
     }
 
