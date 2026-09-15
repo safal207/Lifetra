@@ -47,9 +47,9 @@ pub use lifetra_synergy::SynergyState;
 pub use lifetra_trajectory::{LifecycleStage, StateTransition, TrajectoryState};
 pub use orientation_delta::{OrientationBlock, OrientationDelta, ProvenOrientation};
 pub use provider_reconciliation::{
-    ProviderObservation, ProviderReconciliationAdapter, ProviderReconciliationError,
-    ProviderReconciliationPhase, ProviderReconciliationQuery, ProviderReconciliationResult,
-    ProviderReconciler,
+    ProviderObservation, ProviderReconciler, ProviderReconciliationAdapter,
+    ProviderReconciliationError, ProviderReconciliationPhase, ProviderReconciliationQuery,
+    ProviderReconciliationResult,
 };
 pub use reconciliation::{
     IdempotencyBinding, ReconciliationOutcome, ReconciliationReceipt, RetryAuthority, RetryBlock,
