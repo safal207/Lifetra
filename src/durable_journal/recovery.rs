@@ -1,5 +1,6 @@
 use crate::{
-    AttemptStatus, ExecutionOutcome, ReconciliationOutcome, RetryDecision, RetryReason, RetryVerdict,
+    AttemptStatus, ExecutionOutcome, ReconciliationOutcome, RetryDecision, RetryReason,
+    RetryVerdict,
 };
 
 use super::*;
@@ -91,7 +92,12 @@ pub(super) fn replay_events(events: &[JournalEvent]) -> Result<RecoveredRuntime,
                         ordinal: prepared.id.ordinal,
                     });
                 }
-                ledger.record_reconciliation(*ordinal, *observed_at, *outcome, proof_ref.clone())?;
+                ledger.record_reconciliation(
+                    *ordinal,
+                    *observed_at,
+                    *outcome,
+                    proof_ref.clone(),
+                )?;
             }
             JournalEvent::External {
                 ordinal,
@@ -104,7 +110,12 @@ pub(super) fn replay_events(events: &[JournalEvent]) -> Result<RecoveredRuntime,
                         ordinal: prepared.id.ordinal,
                     });
                 }
-                ledger.record_external_outcome(*ordinal, *observed_at, *outcome, proof_ref.clone())?;
+                ledger.record_external_outcome(
+                    *ordinal,
+                    *observed_at,
+                    *outcome,
+                    proof_ref.clone(),
+                )?;
             }
         }
     }
