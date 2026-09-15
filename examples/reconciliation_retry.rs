@@ -69,12 +69,7 @@ fn main() {
     )
     .expect("valid reconciliation receipt");
     let redispatch = retry
-        .evaluate(
-            &trace,
-            &binding,
-            Some(&no_effect),
-            RetryContext::default(),
-        )
+        .evaluate(&trace, &binding, Some(&no_effect), RetryContext::default())
         .expect("retry decision");
 
     assert_eq!(
