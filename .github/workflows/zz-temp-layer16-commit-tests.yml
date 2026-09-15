@@ -20,8 +20,12 @@ jobs:
         with:
           components: rustfmt
       - name: Add commit reconciliation tests
+        env:
+          TESTS_B64: ICAgICNbdGVzdF0KICAgIGZuIGxvc3RfY29tbWl0X2Fja19yZWNvbmNpbGVzX2V4YWN0X2FwcGxpZWRfcmVwbGFjZW1lbnQoKSB7CiAgICAgICAgbGV0IFNvbWUoKHJ1bnRpbWUsIHRpY2tldCwgXykpID0gcnVudGltZSgiY29tbWl0LWFjayIpIGVsc2UgewogICAgICAgICAgICByZXR1cm47CiAgICAgICAgfTsKICAgICAgICBsZXQgc3RvcmUgPSBydW50aW1lLnN0b3JlKCkuY2xvbmUoKTsKICAgICAgICBsZXQgY3VycmVudCA9IHN0b3JlLmxvYWQoJnRpY2tldC5hY3Rpb25faWQpLmV4cGVjdCgibG9hZCIpLmV4cGVjdCgicm93Iik7CiAgICAgICAgbGV0IG11dCByZXBsYWNlbWVudCA9IGN1cnJlbnQuY2xvbmUoKTsKICAgICAgICByZXBsYWNlbWVudC5yZXZpc2lvbiArPSAxOwogICAgICAgIHJlcGxhY2VtZW50LmxlYXNlID0gU29tZShVbmlmaWVkTGVhc2VBdXRob3JpdHkgewogICAgICAgICAgICBvd25lcjogUmVjb3ZlcnlXb3JrZXJJZDo6bmV3KCJ3b3JrZXItY29tbWl0LWFjayIpLmV4cGVjdCgid29ya2VyIiksCiAgICAgICAgICAgIGVwb2NoOiAxLAogICAgICAgICAgICByZXZpc2lvbjogMCwKICAgICAgICAgICAgZXhwaXJlc19hdDogVGltZXN0YW1wOjpuZXcoaTY0OjpNQVggLyA0KSwKICAgICAgICB9KTsKICAgICAgICBhc3NlcnQhKHN0b3JlCiAgICAgICAgICAgIC5jb21wYXJlX2FuZF9zd2FwKAogICAgICAgICAgICAgICAgJnRpY2tldC5hY3Rpb25faWQsCiAgICAgICAgICAgICAgICBTb21lKGN1cnJlbnQucmV2aXNpb24pLAogICAgICAgICAgICAgICAgcmVwbGFjZW1lbnQuY2xvbmUoKSwKICAgICAgICAgICAgKQogICAgICAgICAgICAuZXhwZWN0KCJjb21taXQiKSk7CgogICAgICAgIC8vIFRoZSBzdGF0ZSBjb21wYXJpc29uIG1vZGVscyBhIGxvc3QgQ09NTUlUIGFja25vd2xlZGdlbWVudDogdGhlIGNhbGxlcgogICAgICAgIC8vIGlnbm9yZXMgdGhlIGFja25vd2xlZGdlbWVudCBhbmQgYXNrcyBQb3N0Z3JlU1FMIHdoYXQgZHVyYWJsZSBzdGF0ZSB3b24uCiAgICAgICAgYXNzZXJ0X2VxISgKICAgICAgICAgICAgc3RvcmUKICAgICAgICAgICAgICAgIC5yZXNvbHZlX2NvbW1pdF9vdXRjb21lKAogICAgICAgICAgICAgICAgICAgICZ0aWNrZXQuYWN0aW9uX2lkLAogICAgICAgICAgICAgICAgICAgIFNvbWUoY3VycmVudC5yZXZpc2lvbiksCiAgICAgICAgICAgICAgICAgICAgJnJlcGxhY2VtZW50LAogICAgICAgICAgICAgICAgKQogICAgICAgICAgICAgICAgLmV4cGVjdCgicmVjb25jaWxlIiksCiAgICAgICAgICAgIFBvc3RncmVzQ29tbWl0UmVzb2x1dGlvbjo6QXBwbGllZAogICAgICAgICk7CiAgICAgICAgc3RvcmUuZGVsZXRlX2FjdGlvbigmdGlja2V0LmFjdGlvbl9pZCkub2soKTsKICAgIH0KCiAgICAjW3Rlc3RdCiAgICBmbiBhYnNlbnRfY29tbWl0X2lzX2NvbmZpcm1lZF9ub3RfYXBwbGllZF9iZWZvcmVfcmV0cnkoKSB7CiAgICAgICAgbGV0IFNvbWUoKHJ1bnRpbWUsIHRpY2tldCwgXykpID0gcnVudGltZSgiY29tbWl0LW5vdC1hcHBsaWVkIikgZWxzZSB7CiAgICAgICAgICAgIHJldHVybjsKICAgICAgICB9OwogICAgICAgIGxldCBzdG9yZSA9IHJ1bnRpbWUuc3RvcmUoKS5jbG9uZSgpOwogICAgICAgIGxldCBjdXJyZW50ID0gc3RvcmUubG9hZCgmdGlja2V0LmFjdGlvbl9pZCkuZXhwZWN0KCJsb2FkIikuZXhwZWN0KCJyb3ciKTsKICAgICAgICBsZXQgbXV0IHJlcGxhY2VtZW50ID0gY3VycmVudC5jbG9uZSgpOwogICAgICAgIHJlcGxhY2VtZW50LnJldmlzaW9uICs9IDE7CiAgICAgICAgcmVwbGFjZW1lbnQubGVhc2UgPSBTb21lKFVuaWZpZWRMZWFzZUF1dGhvcml0eSB7CiAgICAgICAgICAgIG93bmVyOiBSZWNvdmVyeVdvcmtlcklkOjpuZXcoIndvcmtlci1ub3QtYXBwbGllZCIpLmV4cGVjdCgid29ya2VyIiksCiAgICAgICAgICAgIGVwb2NoOiAxLAogICAgICAgICAgICByZXZpc2lvbjogMCwKICAgICAgICAgICAgZXhwaXJlc19hdDogVGltZXN0YW1wOjpuZXcoaTY0OjpNQVggLyA0KSwKICAgICAgICB9KTsKICAgICAgICBhc3NlcnRfZXEhKAogICAgICAgICAgICBzdG9yZQogICAgICAgICAgICAgICAgLnJlc29sdmVfY29tbWl0X291dGNvbWUoCiAgICAgICAgICAgICAgICAgICAgJnRpY2tldC5hY3Rpb25faWQsCiAgICAgICAgICAgICAgICAgICAgU29tZShjdXJyZW50LnJldmlzaW9uKSwKICAgICAgICAgICAgICAgICAgICAmcmVwbGFjZW1lbnQsCiAgICAgICAgICAgICAgICApCiAgICAgICAgICAgICAgICAuZXhwZWN0KCJyZWNvbmNpbGUiKSwKICAgICAgICAgICAgUG9zdGdyZXNDb21taXRSZXNvbHV0aW9uOjpOb3RBcHBsaWVkCiAgICAgICAgKTsKICAgICAgICBzdG9yZS5kZWxldGVfYWN0aW9uKCZ0aWNrZXQuYWN0aW9uX2lkKS5vaygpOwogICAgfQoKICAgICNbdGVzdF0KICAgIGZuIHN1cGVyc2VkZWRfcmV2aXNpb25fa2VlcHNfb2xkX2NvbW1pdF9vdXRjb21lX3Vua25vd24oKSB7CiAgICAgICAgbGV0IFNvbWUoKHJ1bnRpbWUsIHRpY2tldCwgXykpID0gcnVudGltZSgiY29tbWl0LXN1cGVyc2VkZWQiKSBlbHNlIHsKICAgICAgICAgICAgcmV0dXJuOwogICAgICAgIH07CiAgICAgICAgbGV0IHN0b3JlID0gcnVudGltZS5zdG9yZSgpLmNsb25lKCk7CiAgICAgICAgbGV0IGN1cnJlbnQgPSBzdG9yZS5sb2FkKCZ0aWNrZXQuYWN0aW9uX2lkKS5leHBlY3QoImxvYWQiKS5leHBlY3QoInJvdyIpOwogICAgICAgIGxldCBtdXQgZmlyc3QgPSBjdXJyZW50LmNsb25lKCk7CiAgICAgICAgZmlyc3QucmV2aXNpb24gKz0gMTsKICAgICAgICBmaXJzdC5sZWFzZSA9IFNvbWUoVW5pZmllZExlYXNlQXV0aG9yaXR5IHsKICAgICAgICAgICAgb3duZXI6IFJlY292ZXJ5V29ya2VySWQ6Om5ldygid29ya2VyLXN1cGVyc2VkZWQiKS5leHBlY3QoIndvcmtlciIpLAogICAgICAgICAgICBlcG9jaDogMSwKICAgICAgICAgICAgcmV2aXNpb246IDAsCiAgICAgICAgICAgIGV4cGlyZXNfYXQ6IFRpbWVzdGFtcDo6bmV3KGk2NDo6TUFYIC8gNCksCiAgICAgICAgfSk7CiAgICAgICAgYXNzZXJ0IShzdG9yZQogICAgICAgICAgICAuY29tcGFyZV9hbmRfc3dhcCgmdGlja2V0LmFjdGlvbl9pZCwgU29tZShjdXJyZW50LnJldmlzaW9uKSwgZmlyc3QuY2xvbmUoKSkKICAgICAgICAgICAgLmV4cGVjdCgiZmlyc3QgY29tbWl0IikpOwoKICAgICAgICBsZXQgb2JzZXJ2ZWQgPSBzdG9yZS5sb2FkKCZ0aWNrZXQuYWN0aW9uX2lkKS5leHBlY3QoInJlbG9hZCIpLmV4cGVjdCgicm93Iik7CiAgICAgICAgbGV0IG11dCBsYXRlciA9IG9ic2VydmVkLmNsb25lKCk7CiAgICAgICAgbGF0ZXIucmV2aXNpb24gKz0gMTsKICAgICAgICBsYXRlci5sZWFzZS5hc19tdXQoKS5leHBlY3QoImxlYXNlIikucmV2aXNpb24gKz0gMTsKICAgICAgICBhc3NlcnQhKHN0b3JlCiAgICAgICAgICAgIC5jb21wYXJlX2FuZF9zd2FwKCZ0aWNrZXQuYWN0aW9uX2lkLCBTb21lKG9ic2VydmVkLnJldmlzaW9uKSwgbGF0ZXIpCiAgICAgICAgICAgIC5leHBlY3QoImxhdGVyIGNvbW1pdCIpKTsKCiAgICAgICAgYXNzZXJ0X2VxISgKICAgICAgICAgICAgc3RvcmUKICAgICAgICAgICAgICAgIC5yZXNvbHZlX2NvbW1pdF9vdXRjb21lKCZ0aWNrZXQuYWN0aW9uX2lkLCBTb21lKGN1cnJlbnQucmV2aXNpb24pLCAmZmlyc3QpCiAgICAgICAgICAgICAgICAuZXhwZWN0KCJyZWNvbmNpbGUiKSwKICAgICAgICAgICAgUG9zdGdyZXNDb21taXRSZXNvbHV0aW9uOjpVbmtub3duIHsKICAgICAgICAgICAgICAgIG9ic2VydmVkX3JldmlzaW9uOiBTb21lKDIpCiAgICAgICAgICAgIH0KICAgICAgICApOwogICAgICAgIHN0b3JlLmRlbGV0ZV9hY3Rpb24oJnRpY2tldC5hY3Rpb25faWQpLm9rKCk7CiAgICB9Cgo=
         run: |
           python - <<'PY'
+          import base64
+          import os
           from pathlib import Path
           p = Path('src/postgres_unified_store.rs')
           text = p.read_text()
@@ -29,115 +33,12 @@ jobs:
               '(Some(expected), Some(record)) if record == *replacement => {',
               '(Some(_), Some(record)) if record == *replacement => {'
           )
-          marker = '''    #[test]\n    fn no_effect_proof_survives_postgres_round_trip_for_retry() {\n'''
+          marker = '    #[test]\n    fn no_effect_proof_survives_postgres_round_trip_for_retry() {\n'
           if marker not in text:
               raise SystemExit('insertion marker not found')
-          tests = r'''    #[test]
-    fn lost_commit_ack_reconciles_exact_applied_replacement() {
-        let Some((runtime, ticket, _)) = runtime("commit-ack") else {
-            return;
-        };
-        let store = runtime.store().clone();
-        let current = store.load(&ticket.action_id).expect("load").expect("row");
-        let mut replacement = current.clone();
-        replacement.revision += 1;
-        replacement.lease = Some(UnifiedLeaseAuthority {
-            owner: RecoveryWorkerId::new("worker-commit-ack").expect("worker"),
-            epoch: 1,
-            revision: 0,
-            expires_at: Timestamp::new(i64::MAX / 4),
-        });
-        assert!(store
-            .compare_and_swap(
-                &ticket.action_id,
-                Some(current.revision),
-                replacement.clone(),
-            )
-            .expect("commit"));
-
-        // The state comparison models a lost COMMIT acknowledgement: the caller
-        // ignores the acknowledgement and asks PostgreSQL what durable state won.
-        assert_eq!(
-            store
-                .resolve_commit_outcome(
-                    &ticket.action_id,
-                    Some(current.revision),
-                    &replacement,
-                )
-                .expect("reconcile"),
-            PostgresCommitResolution::Applied
-        );
-        store.delete_action(&ticket.action_id).ok();
-    }
-
-    #[test]
-    fn absent_commit_is_confirmed_not_applied_before_retry() {
-        let Some((runtime, ticket, _)) = runtime("commit-not-applied") else {
-            return;
-        };
-        let store = runtime.store().clone();
-        let current = store.load(&ticket.action_id).expect("load").expect("row");
-        let mut replacement = current.clone();
-        replacement.revision += 1;
-        replacement.lease = Some(UnifiedLeaseAuthority {
-            owner: RecoveryWorkerId::new("worker-not-applied").expect("worker"),
-            epoch: 1,
-            revision: 0,
-            expires_at: Timestamp::new(i64::MAX / 4),
-        });
-        assert_eq!(
-            store
-                .resolve_commit_outcome(
-                    &ticket.action_id,
-                    Some(current.revision),
-                    &replacement,
-                )
-                .expect("reconcile"),
-            PostgresCommitResolution::NotApplied
-        );
-        store.delete_action(&ticket.action_id).ok();
-    }
-
-    #[test]
-    fn superseded_revision_keeps_old_commit_outcome_unknown() {
-        let Some((runtime, ticket, _)) = runtime("commit-superseded") else {
-            return;
-        };
-        let store = runtime.store().clone();
-        let current = store.load(&ticket.action_id).expect("load").expect("row");
-        let mut first = current.clone();
-        first.revision += 1;
-        first.lease = Some(UnifiedLeaseAuthority {
-            owner: RecoveryWorkerId::new("worker-superseded").expect("worker"),
-            epoch: 1,
-            revision: 0,
-            expires_at: Timestamp::new(i64::MAX / 4),
-        });
-        assert!(store
-            .compare_and_swap(&ticket.action_id, Some(current.revision), first.clone())
-            .expect("first commit"));
-
-        let observed = store.load(&ticket.action_id).expect("reload").expect("row");
-        let mut later = observed.clone();
-        later.revision += 1;
-        later.lease.as_mut().expect("lease").revision += 1;
-        assert!(store
-            .compare_and_swap(&ticket.action_id, Some(observed.revision), later)
-            .expect("later commit"));
-
-        assert_eq!(
-            store
-                .resolve_commit_outcome(&ticket.action_id, Some(current.revision), &first)
-                .expect("reconcile"),
-            PostgresCommitResolution::Unknown {
-                observed_revision: Some(2)
-            }
-        );
-        store.delete_action(&ticket.action_id).ok();
-    }
-
-'''
-          text = text.replace(marker, tests + marker, 1)
+          tests = base64.b64decode(os.environ['TESTS_B64']).decode()
+          if 'lost_commit_ack_reconciles_exact_applied_replacement' not in text:
+              text = text.replace(marker, tests + marker, 1)
           p.write_text(text)
           PY
           cargo fmt --all
@@ -145,6 +46,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No changes required"
+            exit 0
+          fi
           git add src/postgres_unified_store.rs
           git commit -m "test: cover PostgreSQL commit outcome reconciliation"
           git push origin HEAD:feat/trajectory-bead-graph
