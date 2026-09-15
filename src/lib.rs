@@ -7,7 +7,7 @@
 //! identity-preserving execution receipts, reconciliation-gated retry authority,
 //! append-only physical attempt ledgers, fsync-backed durable recovery journals,
 //! provider-neutral reconciliation adapters, recovery-lease fencing, downstream
-//! fenced actuators, and durable actuator-receipt bridges.
+//! fenced actuators, durable actuator-receipt bridges, and unified fenced storage.
 
 mod actuator_receipt_bridge;
 mod attempt_ledger;
@@ -20,6 +20,7 @@ mod provider_reconciliation;
 mod reconciliation;
 mod recovery_lease;
 mod safety_authority;
+mod unified_fenced_store;
 
 pub use actuator_receipt_bridge::{
     ActuatorBridgeBinding, ActuatorBridgeDirective, ActuatorBridgeError,
@@ -80,6 +81,13 @@ pub use recovery_lease::{
 pub use safety_authority::{
     ApprovalState, AuthorityContext, AuthorityDecision, AuthorityReason, AuthorityVerdict,
     AutonomyLevel, DecisionAuthority, ExecutionMode, SafetyConfigBlock, SafetyEnvelope,
+};
+pub use unified_fenced_store::{
+    InMemoryUnifiedFencedStore, InMemoryUnifiedStoreError, UnifiedActionRecord, UnifiedConfigBlock,
+    UnifiedDispatchEvidence, UnifiedEffectEvidence, UnifiedEffectOutcome, UnifiedEvidenceCommit,
+    UnifiedEvidenceSource, UnifiedFencedBlock, UnifiedFencedRuntime, UnifiedFencedStore,
+    UnifiedFencingToken, UnifiedLeaseAuthority, UnifiedOperationBinding, UnifiedPreparedAttempt,
+    UnifiedProjectionMarker, UnifiedReconciliationObservation, UnifiedRuntimeDirective,
 };
 
 impl<E> From<JournalError> for ActuatorBridgeRuntimeError<E> {
@@ -412,5 +420,69 @@ mod tests {
             .execute(&permit, "op:actuator:facade", &actuator)
             .expect("fenced apply");
         assert_eq!(receipt.outcome, FencedActuatorOutcome::Applied);
+    }
+
+    #[test]
+    fn facade_exposes_unified_fenced_store() {
+        let ticket = AuthorityTicket {
+            action_id: ActionId::new("action:unified:facade").expect("action"),
+            source_bead: BeadId::new("bead:unified:facade"),
+            execution_mode: ExecutionMode::Automatic,
+            authority_proof_refs: vec!["proof:authority:unified:facade".into()],
+            issued_at: Timestamp::new(10),
+        };
+        let binding =
+            IdempotencyBinding::new(&ticket, "idem:unified:facade").expect("binding");
+        let runtime = UnifiedFencedRuntime::new(InMemoryUnifiedFencedStore::default());
+        runtime
+            .create_action(&ticket, &binding, "operation:unified:facade")
+            .expect("create");
+        let token = runtime
+            .acquire(
+                &ticket.action_id,
+                RecoveryWorkerId::new("worker:unified:facade").expect("worker"),
+                Timestamp::new(100),
+                30,
+            )
+            .expect("lease");
+        let decision = RetryDecision {
+            action_id: ticket.action_id.clone(),
+            idempotency_key: binding.key.clone(),
+            verdict: RetryVerdict::InitialDispatchAllowed,
+            reasons: vec![RetryReason::AuthorizedNotDispatched],
+            proof_refs: ticket.authority_proof_refs.clone(),
+        };
+        let permit = runtime
+            .prepare_attempt(
+                &token,
+                &decision,
+                Timestamp::new(101),
+                Timestamp::new(101),
+            )
+            .expect("prepare");
+        let receipt = FencedActuatorReceipt {
+            request: FencedActuatorRequest::from_permit(&permit, "operation:unified:facade")
+                .expect("request"),
+            observed_at: Timestamp::new(102),
+            outcome: FencedActuatorOutcome::Applied,
+            proof_ref: "proof:unified:facade".into(),
+        };
+        runtime
+            .record_actuator_receipt(&receipt)
+            .expect("record evidence");
+        assert_eq!(
+            runtime.directive(&ticket.action_id).expect("directive"),
+            UnifiedRuntimeDirective::CloseSucceeded {
+                ordinal: 0,
+                proof_ref: "proof:unified:facade".into(),
+            }
+        );
+        assert_eq!(
+            runtime
+                .projected_supported_evidence(&ticket.action_id)
+                .expect("evidence")
+                .len(),
+            1
+        );
     }
 }
