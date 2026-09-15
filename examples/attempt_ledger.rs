@@ -12,8 +12,7 @@ fn main() {
         authority_proof_refs: vec!["proof:authority:payout:42".into()],
         issued_at: Timestamp::new(100),
     };
-    let binding =
-        IdempotencyBinding::new(&ticket, "idem:payout:ledger:42").expect("valid binding");
+    let binding = IdempotencyBinding::new(&ticket, "idem:payout:ledger:42").expect("valid binding");
     let mut ledger = AttemptLedger::new(ticket, binding).expect("valid attempt ledger");
     let retry_authority = RetryAuthority::new(RetryPolicy::new(1, false, true));
 
