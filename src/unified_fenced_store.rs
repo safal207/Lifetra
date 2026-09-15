@@ -210,7 +210,9 @@ pub enum UnifiedFencedBlock<E> {
         expires_at: Timestamp,
     },
     LeaseMissing,
-    LeaseExpired { epoch: u64 },
+    LeaseExpired {
+        epoch: u64,
+    },
     StaleFence {
         presented_epoch: u64,
         current_epoch: u64,
@@ -220,12 +222,19 @@ pub enum UnifiedFencedBlock<E> {
     LeaseRevisionOverflow,
     RecordRevisionOverflow,
     DecisionDoesNotAuthorizePreparation,
-    UnexpectedAttemptOrdinal { expected: u32, received: u32 },
+    UnexpectedAttemptOrdinal {
+        expected: u32,
+        received: u32,
+    },
     PreviousAttemptNotRetrySafe,
     RetryProofLineageMissing,
-    AttemptMissing { ordinal: u32 },
+    AttemptMissing {
+        ordinal: u32,
+    },
     PermitMismatch,
-    DispatchAlreadyRecorded { ordinal: u32 },
+    DispatchAlreadyRecorded {
+        ordinal: u32,
+    },
     EmptyProof,
     ObservationBeforePreparation,
     ReceiptIdentityMismatch,
@@ -410,10 +419,9 @@ impl<S: UnifiedFencedStore> UnifiedFencedRuntime<S> {
                 return Err(UnifiedFencedBlock::DecisionDoesNotAuthorizePreparation)
             }
         };
-        let expected = record
-            .attempts
-            .last()
-            .map_or(0, |attempt| attempt.permit.attempt_ordinal.saturating_add(1));
+        let expected = record.attempts.last().map_or(0, |attempt| {
+            attempt.permit.attempt_ordinal.saturating_add(1)
+        });
         if ordinal != expected {
             return Err(UnifiedFencedBlock::UnexpectedAttemptOrdinal {
                 expected,
@@ -599,7 +607,9 @@ impl<S: UnifiedFencedStore> UnifiedFencedRuntime<S> {
                     proof_ref: evidence.proof_ref.clone(),
                 })
             }
-            UnifiedEffectOutcome::StillUnknown => Ok(UnifiedRuntimeDirective::Reconcile { ordinal }),
+            UnifiedEffectOutcome::StillUnknown => {
+                Ok(UnifiedRuntimeDirective::Reconcile { ordinal })
+            }
             UnifiedEffectOutcome::IdentityConflict => {
                 Ok(UnifiedRuntimeDirective::BlockIdentityConflict {
                     proof_ref: evidence.proof_ref.clone(),
@@ -698,7 +708,10 @@ fn current_lease<'a, E>(
     if record.binding.action_id != token.action_id {
         return Err(UnifiedFencedBlock::ActionMismatch);
     }
-    let lease = record.lease.as_ref().ok_or(UnifiedFencedBlock::LeaseMissing)?;
+    let lease = record
+        .lease
+        .as_ref()
+        .ok_or(UnifiedFencedBlock::LeaseMissing)?;
     if lease.epoch != token.epoch {
         return Err(UnifiedFencedBlock::StaleFence {
             presented_epoch: token.epoch,
@@ -790,10 +803,7 @@ fn non_empty_unified_proof<E>(
     Ok(proof_ref)
 }
 
-fn unified_expiry<E>(
-    now: Timestamp,
-    ttl_seconds: i64,
-) -> Result<Timestamp, UnifiedFencedBlock<E>> {
+fn unified_expiry<E>(now: Timestamp, ttl_seconds: i64) -> Result<Timestamp, UnifiedFencedBlock<E>> {
     if ttl_seconds <= 0 {
         return Err(UnifiedConfigBlock::InvalidTtl.into());
     }
@@ -903,7 +913,10 @@ mod tests {
         }
     }
 
-    fn runtime() -> (UnifiedFencedRuntime<InMemoryUnifiedFencedStore>, AuthorityTicket) {
+    fn runtime() -> (
+        UnifiedFencedRuntime<InMemoryUnifiedFencedStore>,
+        AuthorityTicket,
+    ) {
         let store = InMemoryUnifiedFencedStore::default();
         let runtime = UnifiedFencedRuntime::new(store);
         let ticket = ticket();
@@ -930,10 +943,20 @@ mod tests {
     fn takeover_advances_epoch_and_stales_old_worker() {
         let (runtime, ticket) = runtime();
         let stale = runtime
-            .acquire(&ticket.action_id, worker("worker-a"), Timestamp::new(100), 10)
+            .acquire(
+                &ticket.action_id,
+                worker("worker-a"),
+                Timestamp::new(100),
+                10,
+            )
             .expect("worker a");
         let current = runtime
-            .acquire(&ticket.action_id, worker("worker-b"), Timestamp::new(111), 20)
+            .acquire(
+                &ticket.action_id,
+                worker("worker-b"),
+                Timestamp::new(111),
+                20,
+            )
             .expect("worker b");
         assert_eq!(stale.epoch, 1);
         assert_eq!(current.epoch, 2);
@@ -955,7 +978,12 @@ mod tests {
     fn success_receipt_and_projection_commit_in_same_revision() {
         let (runtime, ticket) = runtime();
         let token = runtime
-            .acquire(&ticket.action_id, worker("worker-a"), Timestamp::new(100), 30)
+            .acquire(
+                &ticket.action_id,
+                worker("worker-a"),
+                Timestamp::new(100),
+                30,
+            )
             .expect("lease");
         let permit = runtime
             .prepare_attempt(
@@ -981,14 +1009,22 @@ mod tests {
         assert_eq!(commit.record_revision, before + 1);
         assert_eq!(record.evidence.len(), 1);
         assert_eq!(record.projections.len(), 1);
-        assert_eq!(record.evidence[0].proof_ref, record.projections[0].proof_ref);
+        assert_eq!(
+            record.evidence[0].proof_ref,
+            record.projections[0].proof_ref
+        );
     }
 
     #[test]
     fn late_valid_receipt_from_prior_epoch_is_still_admitted_as_evidence() {
         let (runtime, ticket) = runtime();
         let stale = runtime
-            .acquire(&ticket.action_id, worker("worker-a"), Timestamp::new(100), 10)
+            .acquire(
+                &ticket.action_id,
+                worker("worker-a"),
+                Timestamp::new(100),
+                10,
+            )
             .expect("worker a");
         let permit = runtime
             .prepare_attempt(
@@ -999,7 +1035,12 @@ mod tests {
             )
             .expect("prepare");
         runtime
-            .acquire(&ticket.action_id, worker("worker-b"), Timestamp::new(111), 30)
+            .acquire(
+                &ticket.action_id,
+                worker("worker-b"),
+                Timestamp::new(111),
+                30,
+            )
             .expect("worker b takeover");
 
         let receipt = FencedActuatorReceipt {
@@ -1025,7 +1066,12 @@ mod tests {
     fn rejected_receipt_remains_reconcile_first() {
         let (runtime, ticket) = runtime();
         let token = runtime
-            .acquire(&ticket.action_id, worker("worker-a"), Timestamp::new(100), 30)
+            .acquire(
+                &ticket.action_id,
+                worker("worker-a"),
+                Timestamp::new(100),
+                30,
+            )
             .expect("lease");
         let permit = runtime
             .prepare_attempt(
@@ -1058,7 +1104,12 @@ mod tests {
     fn no_effect_reconciliation_requires_proof_lineage_for_retry() {
         let (runtime, ticket) = runtime();
         let token = runtime
-            .acquire(&ticket.action_id, worker("worker-a"), Timestamp::new(100), 40)
+            .acquire(
+                &ticket.action_id,
+                worker("worker-a"),
+                Timestamp::new(100),
+                40,
+            )
             .expect("lease");
         runtime
             .prepare_attempt(
@@ -1102,12 +1153,7 @@ mod tests {
             ..missing_lineage
         };
         let permit = runtime
-            .prepare_attempt(
-                &token,
-                &retry,
-                Timestamp::new(103),
-                Timestamp::new(103),
-            )
+            .prepare_attempt(&token, &retry, Timestamp::new(103), Timestamp::new(103))
             .expect("retry with lineage");
         assert_eq!(permit.attempt_ordinal, 1);
     }
@@ -1116,7 +1162,12 @@ mod tests {
     fn identity_conflict_is_fail_closed() {
         let (runtime, ticket) = runtime();
         let token = runtime
-            .acquire(&ticket.action_id, worker("worker-a"), Timestamp::new(100), 30)
+            .acquire(
+                &ticket.action_id,
+                worker("worker-a"),
+                Timestamp::new(100),
+                30,
+            )
             .expect("lease");
         let permit = runtime
             .prepare_attempt(
@@ -1148,7 +1199,12 @@ mod tests {
     fn projected_success_can_seed_next_bead() {
         let (runtime, ticket) = runtime();
         let token = runtime
-            .acquire(&ticket.action_id, worker("worker-a"), Timestamp::new(100), 30)
+            .acquire(
+                &ticket.action_id,
+                worker("worker-a"),
+                Timestamp::new(100),
+                30,
+            )
             .expect("lease");
         let permit = runtime
             .prepare_attempt(
@@ -1197,7 +1253,12 @@ mod tests {
     fn reference_actuator_can_feed_unified_store_without_duplicate_effect() {
         let (runtime, ticket) = runtime();
         let token = runtime
-            .acquire(&ticket.action_id, worker("worker-a"), Timestamp::new(100), 30)
+            .acquire(
+                &ticket.action_id,
+                worker("worker-a"),
+                Timestamp::new(100),
+                30,
+            )
             .expect("lease");
         let permit = runtime
             .prepare_attempt(

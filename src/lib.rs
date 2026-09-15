@@ -431,8 +431,7 @@ mod tests {
             authority_proof_refs: vec!["proof:authority:unified:facade".into()],
             issued_at: Timestamp::new(10),
         };
-        let binding =
-            IdempotencyBinding::new(&ticket, "idem:unified:facade").expect("binding");
+        let binding = IdempotencyBinding::new(&ticket, "idem:unified:facade").expect("binding");
         let runtime = UnifiedFencedRuntime::new(InMemoryUnifiedFencedStore::default());
         runtime
             .create_action(&ticket, &binding, "operation:unified:facade")
@@ -453,12 +452,7 @@ mod tests {
             proof_refs: ticket.authority_proof_refs.clone(),
         };
         let permit = runtime
-            .prepare_attempt(
-                &token,
-                &decision,
-                Timestamp::new(101),
-                Timestamp::new(101),
-            )
+            .prepare_attempt(&token, &decision, Timestamp::new(101), Timestamp::new(101))
             .expect("prepare");
         let receipt = FencedActuatorReceipt {
             request: FencedActuatorRequest::from_permit(&permit, "operation:unified:facade")

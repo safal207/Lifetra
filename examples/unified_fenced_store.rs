@@ -17,11 +17,7 @@ fn main() {
     let binding = IdempotencyBinding::new(&ticket, "idem:unified-store:demo").expect("binding");
     let runtime = UnifiedFencedRuntime::new(InMemoryUnifiedFencedStore::default());
     runtime
-        .create_action(
-            &ticket,
-            &binding,
-            "operation:payout:unified-store-demo",
-        )
+        .create_action(&ticket, &binding, "operation:payout:unified-store-demo")
         .expect("create action record");
 
     let token = runtime
@@ -40,12 +36,7 @@ fn main() {
         proof_refs: ticket.authority_proof_refs.clone(),
     };
     let permit = runtime
-        .prepare_attempt(
-            &token,
-            &decision,
-            Timestamp::new(101),
-            Timestamp::new(101),
-        )
+        .prepare_attempt(&token, &decision, Timestamp::new(101), Timestamp::new(101))
         .expect("prepare attempt");
 
     let actuator = InMemoryFencedActuator::default();
@@ -59,11 +50,7 @@ fn main() {
         })
         .expect("install actuator authority");
     let receipt = FencedActuatorController
-        .execute(
-            &permit,
-            "operation:payout:unified-store-demo",
-            &actuator,
-        )
+        .execute(&permit, "operation:payout:unified-store-demo", &actuator)
         .expect("apply fenced effect");
 
     let commit = runtime
