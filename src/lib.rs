@@ -6,9 +6,10 @@
 //! proof-backed orientation deltas, bounded correction policies, decision authority,
 //! identity-preserving execution receipts, reconciliation-gated retry authority,
 //! append-only physical attempt ledgers, fsync-backed durable recovery journals,
-//! provider-neutral reconciliation adapters, recovery-lease fencing, and
-//! downstream fenced actuators.
+//! provider-neutral reconciliation adapters, recovery-lease fencing, downstream
+//! fenced actuators, and durable actuator-receipt bridges.
 
+mod actuator_receipt_bridge;
 mod attempt_ledger;
 mod correction_policy;
 mod durable_journal;
@@ -20,6 +21,13 @@ mod reconciliation;
 mod recovery_lease;
 mod safety_authority;
 
+pub use actuator_receipt_bridge::{
+    ActuatorBridgeBinding, ActuatorBridgeDirective, ActuatorBridgeError,
+    ActuatorBridgeReconcileError, ActuatorBridgeRuntimeError, ActuatorRecoveryAdapter,
+    ActuatorRecoveryObservation, ActuatorRecoveryOutcome, ActuatorRecoveryQuery,
+    DurableActuatorEvidence, DurableActuatorReceiptBridge, PreparedActuatorCall,
+    RecoveredActuatorBridge,
+};
 pub use attempt_ledger::{
     AttemptBlock, AttemptDispatchReceipt, AttemptExternalReceipt, AttemptId, AttemptLedger,
     AttemptReconciliationReceipt, AttemptRecord, AttemptStatus,
