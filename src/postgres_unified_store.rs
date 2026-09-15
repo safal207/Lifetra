@@ -671,7 +671,7 @@ fn unhex(value: &str) -> Result<String, PostgresUnifiedStoreError> {
         return Err(PostgresUnifiedStoreError::InvalidHex);
     }
     let mut bytes = Vec::with_capacity(value.len() / 2);
-    for pair in value.as_bytes().chunks_exact(2) {
+    for pair in value.as_bytes().as_chunks::<2>().0 {
         let pair = std::str::from_utf8(pair).map_err(|_| PostgresUnifiedStoreError::InvalidHex)?;
         bytes
             .push(u8::from_str_radix(pair, 16).map_err(|_| PostgresUnifiedStoreError::InvalidHex)?);
