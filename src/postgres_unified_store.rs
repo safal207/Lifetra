@@ -256,11 +256,24 @@ impl PostgresUnifiedFencedRuntime {
         owner: RecoveryWorkerId,
         ttl_seconds: i64,
     ) -> Result<UnifiedFencingToken, UnifiedFencedBlock<PostgresUnifiedStoreError>> {
-        let now = self
-            .store()
-            .authoritative_now()
-            .map_err(UnifiedFencedBlock::Store)?;
-        self.runtime.acquire(action_id, owner, now, ttl_seconds)
+        const DB_TIME_RETRIES: usize = 3;
+
+        for attempt in 0..DB_TIME_RETRIES {
+            let now = self
+                .store()
+                .authoritative_now()
+                .map_err(UnifiedFencedBlock::Store)?;
+            match self
+                .runtime
+                .acquire(action_id, owner.clone(), now, ttl_seconds)
+            {
+                Err(UnifiedFencedBlock::Store(
+                    PostgresUnifiedStoreError::DatabaseLeaseExpired { .. },
+                )) if attempt + 1 < DB_TIME_RETRIES => continue,
+                result => return result,
+            }
+        }
+        unreachable!("DB_TIME_RETRIES is non-zero")
     }
 
     pub fn renew(
@@ -378,8 +391,11 @@ fn validate_lease_transition(
 ) -> Result<(), PostgresUnifiedStoreError> {
     match (current, replacement) {
         (None, Some(next)) => {
-            if next.epoch != 1 || next.revision != 0 || next.expires_at <= db_now {
+            if next.epoch != 1 || next.revision != 0 {
                 return Err(PostgresUnifiedStoreError::InvalidTransition);
+            }
+            if next.expires_at <= db_now {
+                return Err(PostgresUnifiedStoreError::DatabaseLeaseExpired { epoch: next.epoch });
             }
             Ok(())
         }
@@ -401,8 +417,11 @@ fn validate_lease_transition(
                     epoch: old.epoch,
                 });
             }
-            if next.revision != 0 || next.expires_at <= db_now {
+            if next.revision != 0 {
                 return Err(PostgresUnifiedStoreError::InvalidTransition);
+            }
+            if next.expires_at <= db_now {
+                return Err(PostgresUnifiedStoreError::DatabaseLeaseExpired { epoch: next.epoch });
             }
             Ok(())
         }
@@ -829,7 +848,7 @@ mod tests {
             .acquire(
                 &ticket.action_id,
                 RecoveryWorkerId::new("expired-worker").expect("worker"),
-                1,
+                2,
             )
             .expect("lease");
         let store = runtime.store().clone();
