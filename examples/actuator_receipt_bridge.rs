@@ -59,7 +59,9 @@ fn main() {
         .expect("durable preparation");
 
     let actuator = InMemoryFencedActuator::default();
-    actuator.set_time(Timestamp::new(102)).expect("actuator time");
+    actuator
+        .set_time(Timestamp::new(102))
+        .expect("actuator time");
     actuator
         .install_authority(InMemoryActuatorAuthority {
             action_id: action_id.clone(),
@@ -78,7 +80,9 @@ fn main() {
     drop(bridge);
 
     // Recovery worker takes over with a newer fence.
-    actuator.set_time(Timestamp::new(112)).expect("actuator time");
+    actuator
+        .set_time(Timestamp::new(112))
+        .expect("actuator time");
     actuator
         .install_authority(InMemoryActuatorAuthority {
             action_id: action_id.clone(),
