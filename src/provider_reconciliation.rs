@@ -144,11 +144,9 @@ impl ProviderReconciler {
             }
         } else {
             match phase {
-                ProviderReconciliationPhase::PreparedAmbiguous => self.prepared_decision(
-                    &query,
-                    &observation,
-                    after.retry_context(),
-                ),
+                ProviderReconciliationPhase::PreparedAmbiguous => {
+                    self.prepared_decision(&query, &observation, after.retry_context())
+                }
                 ProviderReconciliationPhase::DispatchedUnknown => {
                     let (trace, reconciliation, _) = after.ledger.retry_inputs()?;
                     self.retry_authority.evaluate(
@@ -467,7 +465,10 @@ mod tests {
         let path = temp_path("adapter-error");
         create_prepared_crash(&path);
         let mut journal = DurableJournal::open(&path).expect("journal should reopen");
-        let before = journal.recover().expect("journal should replay").last_sequence;
+        let before = journal
+            .recover()
+            .expect("journal should replay")
+            .last_sequence;
         let adapter = MockAdapter {
             result: Err("provider unavailable"),
             queries: RefCell::new(Vec::new()),
@@ -479,7 +480,10 @@ mod tests {
             Err(ProviderReconciliationError::Adapter("provider unavailable"))
         );
         assert_eq!(
-            journal.recover().expect("journal should replay").last_sequence,
+            journal
+                .recover()
+                .expect("journal should replay")
+                .last_sequence,
             before
         );
         fs::remove_file(path).ok();
