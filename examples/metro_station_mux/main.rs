@@ -1,0 +1,246 @@
+#[path = "../metro_station/support.rs"]
+mod support;
+
+use std::env;
+use std::io::{self, BufRead, Write};
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
+
+use serde::{Deserialize, Serialize};
+use support::{evaluate_request, StationDecision, StationRequest};
+
+const REQUEST_PROTOCOL: &str = "lifetra.station.request-envelope.v0.2";
+const RESPONSE_PROTOCOL: &str = "lifetra.station.response-envelope.v0.2";
+const ERROR_PROTOCOL: &str = "lifetra.station.error.v0.2";
+const DEFAULT_QUEUE_CAPACITY: usize = 1024;
+const MAX_WORKERS: usize = 64;
+
+#[derive(Debug, Deserialize)]
+struct RequestEnvelope {
+    protocol: String,
+    request_id: String,
+    request: StationRequest,
+}
+
+#[derive(Debug, Serialize)]
+struct ResponseEnvelope {
+    protocol: &'static str,
+    request_id: String,
+    decision: StationDecision,
+}
+
+#[derive(Debug, Serialize)]
+struct StationError {
+    protocol: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_id: Option<String>,
+    error: String,
+}
+
+struct Job {
+    request_id: String,
+    request: StationRequest,
+}
+
+fn parse_workers() -> Result<usize, String> {
+    match env::var("LIFETRA_METRO_WORKERS") {
+        Ok(raw) => {
+            let workers = raw
+                .parse::<usize>()
+                .map_err(|error| format!("invalid LIFETRA_METRO_WORKERS: {error}"))?;
+            if workers == 0 || workers > MAX_WORKERS {
+                return Err(format!(
+                    "LIFETRA_METRO_WORKERS must be between 1 and {MAX_WORKERS}"
+                ));
+            }
+            Ok(workers)
+        }
+        Err(env::VarError::NotPresent) => Ok(thread::available_parallelism()
+            .map(usize::from)
+            .unwrap_or(1)
+            .clamp(1, MAX_WORKERS)),
+        Err(error) => Err(format!("read LIFETRA_METRO_WORKERS: {error}")),
+    }
+}
+
+fn decode_envelope(line: &str) -> Result<RequestEnvelope, StationError> {
+    let envelope: RequestEnvelope = serde_json::from_str(line).map_err(|error| StationError {
+        protocol: ERROR_PROTOCOL,
+        request_id: None,
+        error: format!("decode request envelope JSON: {error}"),
+    })?;
+
+    if envelope.protocol != REQUEST_PROTOCOL {
+        return Err(StationError {
+            protocol: ERROR_PROTOCOL,
+            request_id: non_empty_id(&envelope.request_id),
+            error: format!("unsupported request envelope protocol {:?}", envelope.protocol),
+        });
+    }
+    if envelope.request_id.is_empty() {
+        return Err(StationError {
+            protocol: ERROR_PROTOCOL,
+            request_id: None,
+            error: "request_id is required".into(),
+        });
+    }
+
+    Ok(envelope)
+}
+
+fn non_empty_id(value: &str) -> Option<String> {
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_owned())
+    }
+}
+
+fn encode_error(error: StationError) -> String {
+    serde_json::to_string(&error).unwrap_or_else(|_| {
+        "{\"protocol\":\"lifetra.station.error.v0.2\",\"error\":\"encode failure\"}"
+            .to_string()
+    })
+}
+
+fn evaluate(job: Job) -> String {
+    match evaluate_request(job.request) {
+        Ok(decision) => serde_json::to_string(&ResponseEnvelope {
+            protocol: RESPONSE_PROTOCOL,
+            request_id: job.request_id,
+            decision,
+        })
+        .unwrap_or_else(|error| {
+            encode_error(StationError {
+                protocol: ERROR_PROTOCOL,
+                request_id: None,
+                error: format!("encode response envelope JSON: {error}"),
+            })
+        }),
+        Err(error) => encode_error(StationError {
+            protocol: ERROR_PROTOCOL,
+            request_id: Some(job.request_id),
+            error,
+        }),
+    }
+}
+
+fn worker_loop(
+    jobs: Arc<Mutex<mpsc::Receiver<Job>>>,
+    responses: mpsc::Sender<String>,
+) -> Result<(), String> {
+    loop {
+        let job = {
+            let receiver = jobs
+                .lock()
+                .map_err(|_| "Metro job receiver lock was poisoned".to_string())?;
+            receiver.recv()
+        };
+
+        let job = match job {
+            Ok(job) => job,
+            Err(_) => return Ok(()),
+        };
+
+        if responses.send(evaluate(job)).is_err() {
+            return Ok(());
+        }
+    }
+}
+
+fn writer_loop(responses: mpsc::Receiver<String>) -> Result<(), String> {
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
+
+    for response in responses {
+        writeln!(output, "{response}")
+            .map_err(|error| format!("write Metro response line: {error}"))?;
+        output
+            .flush()
+            .map_err(|error| format!("flush Metro response line: {error}"))?;
+    }
+
+    Ok(())
+}
+
+fn run() -> Result<(), String> {
+    let worker_count = parse_workers()?;
+    let (job_tx, job_rx) = mpsc::sync_channel::<Job>(DEFAULT_QUEUE_CAPACITY);
+    let (response_tx, response_rx) = mpsc::channel::<String>();
+    let shared_jobs = Arc::new(Mutex::new(job_rx));
+
+    let writer = thread::spawn(move || writer_loop(response_rx));
+    let mut workers = Vec::with_capacity(worker_count);
+    for _ in 0..worker_count {
+        let jobs = Arc::clone(&shared_jobs);
+        let responses = response_tx.clone();
+        workers.push(thread::spawn(move || worker_loop(jobs, responses)));
+    }
+    drop(response_tx);
+
+    for line in io::stdin().lock().lines() {
+        let line = line.map_err(|error| format!("read Metro request line: {error}"))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        match decode_envelope(&line) {
+            Ok(envelope) => job_tx
+                .send(Job {
+                    request_id: envelope.request_id,
+                    request: envelope.request,
+                })
+                .map_err(|_| "Metro job queue closed unexpectedly".to_string())?,
+            Err(error) => {
+                let encoded = encode_error(error);
+                let stdout = io::stdout();
+                let mut output = stdout.lock();
+                writeln!(output, "{encoded}")
+                    .map_err(|write_error| format!("write Metro error line: {write_error}"))?;
+                output
+                    .flush()
+                    .map_err(|flush_error| format!("flush Metro error line: {flush_error}"))?;
+            }
+        }
+    }
+
+    drop(job_tx);
+
+    for worker in workers {
+        worker
+            .join()
+            .map_err(|_| "Metro worker thread panicked".to_string())??;
+    }
+    writer
+        .join()
+        .map_err(|_| "Metro writer thread panicked".to_string())??;
+
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("multiplex Metro station error: {error}");
+        std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn envelope_requires_request_id() {
+        let line = r#"{"protocol":"lifetra.station.request-envelope.v0.2","request_id":"","request":{}}"#;
+        let error = decode_envelope(line).expect_err("empty request_id must fail closed");
+        assert_eq!(error.protocol, ERROR_PROTOCOL);
+        assert!(error.error.contains("request_id"));
+    }
+
+    #[test]
+    fn malformed_json_returns_unbound_typed_error() {
+        let error = decode_envelope("not-json").expect_err("malformed JSON must fail closed");
+        assert_eq!(error.protocol, ERROR_PROTOCOL);
+        assert!(error.request_id.is_none());
+    }
+}
