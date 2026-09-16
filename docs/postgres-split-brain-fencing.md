@@ -1,142 +1,201 @@
 # PostgreSQL split-brain fencing and old-primary rejoin
 
-Layer 19 extends the PostgreSQL HA evidence from successful promotion into the next failure boundary: what happens when the former primary can come back.
+Layer 19 extends the PostgreSQL HA proof from failover into the old-primary resurrection boundary.
 
-The core invariant is:
+The problem is not merely whether a standby can be promoted. After promotion, the former primary may later become reachable again. If that node can return writable before it is reconciled with the new leader, the database layer can split into two independent writers even though Lifetra's application-level fencing record was preserved correctly.
 
-```text
-promotion != proof the old primary is fenced forever
-```
+This layer therefore treats old-primary exclusion and rejoin as a deployment authority boundary around `PostgresUnifiedFencedStore`.
 
-A database failover is safe only if the former primary cannot return as an independent writable authority. In the CI topology, the old primary is therefore power-fenced before promotion and remains stopped until its data directory has been rewound against the promoted leader.
+## Tested topology
 
-## Stable client endpoint
-
-Lifetra uses one client DSN for leader traffic throughout the scenario:
-
-```text
-postgresql://...@localhost:55434/lifetra
-```
-
-A test-only HAProxy TCP endpoint initially routes that DSN to the original primary. After the primary is fenced and the standby is promoted, the control plane replaces the backend with the promoted standby while keeping the client DSN unchanged.
+The integration workflow creates:
 
 ```text
 Lifetra
    |
-   | stable DSN :55434
+   | one stable PostgreSQL DSN
    v
-leader endpoint
+HAProxy endpoint
    |
-   +--> primary A        (before failover)
-   |
-   +--> promoted B       (after failover)
+   +----> primary A
+             |
+             | synchronous physical replication
+             | synchronous_commit = remote_apply
+             v
+          standby B
 ```
 
-The endpoint switch is explicit CI control-plane behavior. It is not an automatic production election system and does not establish an RTO SLA.
+The client DSN remains stable throughout the test. The endpoint initially routes new connections to A and, after failover, routes them to B.
 
-## Failure and fencing sequence
+The endpoint is test infrastructure. It demonstrates that Lifetra does not need a node-specific DSN, but it is not an automatic production leader-election service.
 
-The split-brain job performs the following order:
+## Initial replicated authority
 
-1. Start a checksummed PostgreSQL 17 primary.
-2. Start the stable leader endpoint pointing to that primary.
-3. Bootstrap a physical standby with `pg_basebackup`.
-4. Require `streaming:sync` and `synchronous_commit=remote_apply`.
-5. Persist the Lifetra action/fence/attempt record through the stable endpoint.
-6. Verify the same record is already readable on the standby.
-7. Power-fence the old primary with `docker kill`.
-8. Confirm the old primary is no longer running.
-9. Promote the standby.
-10. Repoint the same client endpoint to the promoted leader.
-11. Renew the same Lifetra fencing epoch through the unchanged DSN.
-12. Keep the old primary stopped while preparing rejoin.
-13. Run `pg_rewind` against the promoted leader.
-14. Configure the rewound node with `standby.signal`, a primary connection, and a physical replication slot.
-15. Start the former primary only after the rewind has completed.
-16. Verify `pg_is_in_recovery() = true` on that node.
-17. Attempt a direct write and require PostgreSQL to reject it as read-only.
-18. Verify the rewound node is streaming from the promoted leader.
-19. Verify the stable client endpoint still resolves the current leader and the same Lifetra record.
+Before failure, CI requires B to be `streaming:sync` and A to use `synchronous_commit=remote_apply`.
 
-## Why `pg_rewind`
+Through the stable endpoint, Lifetra persists:
 
-The original primary and the promoted standby now have different timelines. Restarting the old primary directly would allow an unsafe divergent writable database.
+- one stable `ActionId`;
+- one idempotency key;
+- one `operation_ref`;
+- lease/fencing epoch `1`;
+- prepared attempt `0`.
 
-`pg_rewind` synchronizes the old data directory with the promoted leader before the node is allowed to start again. The CI primary is initialized with data checksums so the rewind precondition is satisfied.
+The same record must be readable from the recovery-mode standby before A is lost.
 
-The workflow deliberately keeps the old PostgreSQL process stopped while rewind operates on its volume. An unclean old-primary shutdown is handled by `pg_rewind`'s normal crash-recovery preparation before the timeline rewind.
-
-## Observed state continuity
-
-The first complete split-brain run produced:
+Observed initial state:
 
 ```text
-stable endpoint -> old primary
-seed       revision=2 epoch=1 attempt=0
-standby    revision=2 epoch=1 lease_revision=0
-
-power-fence old primary
-promote standby
-stable endpoint -> promoted leader
-promoted   revision=3 epoch=1 lease_revision=1
-
-pg_rewind old primary
-start old primary as standby
-rejoined   revision=3 epoch=1 lease_revision=1
-leader     revision=3 epoch=1 lease_revision=1
+leader endpoint / A: revision=2 epoch=1 attempt=0
+B standby:           revision=2 epoch=1 lease_revision=0
 ```
 
-The database role transition did not mint a new Lifetra authority epoch. The same application epoch continued on the promoted leader, while the returned old node received no execution authority at all; it came back only as a read-only physical standby.
+## Power-fence simulation before promotion
 
-## Direct split-brain rejection proof
+The old primary is not merely stopped and left restartable. The test:
 
-After rejoin, CI executes a write directly against the former primary:
+1. kills its PostgreSQL container;
+2. removes the runnable container while preserving the data volume;
+3. verifies the old host port is closed;
+4. only then promotes B.
+
+Within the Docker CI topology, removing the runnable container models a STONITH-style exclusion: the former primary cannot resume as a PostgreSQL server until the harness deliberately reconstructs it.
+
+This is **not** a claim of production hardware/cloud fencing. Real deployments need an independent fencing mechanism whose failure modes are outside the failed database node itself.
+
+## Stable endpoint after failover
+
+After B is promoted, the HAProxy backend is changed from A to B while Lifetra continues to use the same DSN.
+
+Lifetra then renews the existing replicated lease:
+
+```text
+promoted leader B: revision=3 epoch=1 lease_revision=1
+```
+
+Database leadership changed; application authority did not. Promotion does not manufacture a new Lifetra fencing epoch.
+
+## Making the old data directory rewind-safe
+
+PostgreSQL requires the `pg_rewind` target to be cleanly shut down. A killed primary is not guaranteed to satisfy that condition.
+
+The workflow therefore mounts A's preserved data volume into a maintenance-only PostgreSQL container with `--network none`:
+
+```text
+old A data volume
+      |
+      | crash recovery
+      | no network interface
+      | clean fast shutdown
+      v
+rewind-safe target
+```
+
+This lets PostgreSQL complete crash recovery and create a clean shutdown state without restoring any client or replication authority to the old primary.
+
+The cluster is initialized with data checksums, satisfying one of PostgreSQL's prerequisites for `pg_rewind`.
+
+## Rewind before resurrection
+
+B creates a dedicated physical replication slot for the returning node. A's stopped data directory is then reconciled against B using `pg_rewind --write-recovery-conf`.
+
+The test observed an actual timeline divergence and successful rewind:
+
+```text
+pg_rewind: servers diverged ...
+pg_rewind: rewinding from last common checkpoint ...
+pg_rewind: Done!
+```
+
+The target is configured with `standby.signal` and the rejoin replication slot before it receives a network listener again.
+
+## Resurrection is standby-only
+
+Only after rewind does the old data volume return as a PostgreSQL process. The workflow requires:
 
 ```sql
-CREATE TABLE lifetra_split_brain_violation(id integer);
+SELECT pg_is_in_recovery();
+-- true
 ```
 
-The required result is a PostgreSQL read-only error. A successful write fails the CI job.
-
-This is stronger than merely checking that the stable endpoint points elsewhere: the resurrected node itself must no longer be writable.
-
-## Authority boundaries
+A direct write is then attempted and must fail. The observed PostgreSQL error is:
 
 ```text
-database promotion != new application authority
-stable client endpoint != automatic consensus
-power fence != proof of permanent hardware isolation
-pg_rewind completed != permission to start as primary
-rejoined node != writable leader
-read-only standby != external side-effect fencing
+cannot execute CREATE TABLE in a read-only transaction
 ```
 
-Lifetra's `ActionId`, idempotency key, operation identity, fencing epoch, and proof lineage remain the application-side authority contract. PostgreSQL leadership and node lifecycle are a separate deployment control plane.
+The rewound node also reads the same Lifetra authority state:
+
+```text
+rejoined former A: revision=3 epoch=1 lease_revision=1
+```
+
+So the former primary does not return as an independent writer and does not reset the application fencing history.
+
+## Restoring synchronous redundancy
+
+Rejoin is not considered complete merely because A is read-only. B is configured to use the rewound former A as its synchronous standby, and CI waits for:
+
+```text
+pg_stat_replication => streaming:sync
+synchronous_commit  => remote_apply
+```
+
+Lifetra then performs another lease renewal through the **same stable client DSN**:
+
+```text
+B leader:          revision=4 epoch=1 lease_revision=2
+rewound former A:  revision=4 epoch=1 lease_revision=2
+```
+
+The second observation is made from the recovery-mode former primary, proving the post-rejoin mutation was remote-applied to the restored synchronous standby.
+
+## Invariants demonstrated
+
+```text
+promotion != proof old primary is fenced
+old primary data volume != old primary execution authority
+old primary must be fenced before promotion/rejoin work
+maintenance crash recovery != network resurrection
+pg_rewind precedes old-primary listener restoration
+rewound old primary starts in recovery mode
+recovery-mode former primary rejects writes
+database leadership change != new Lifetra fencing epoch
+stable client endpoint != node identity
+rejoin != redundancy restored
+streaming:sync + remote_apply must be restored before claiming synchronous redundancy
+```
 
 ## What this layer proves
 
-Inside the controlled CI topology:
+Inside the controlled Docker topology:
 
-- the old primary is stopped before promotion;
-- clients keep one DSN while the leader backend changes;
-- the promoted standby continues the same Lifetra fencing state;
-- the old primary remains stopped until its divergent timeline is rewound;
-- the rewound node starts in recovery, not as a writable primary;
-- a direct write to the resurrected node is rejected;
-- the resurrected node streams from the promoted leader;
-- the leader and rejoined standby expose the same Lifetra revision and application fencing epoch.
+1. Lifetra writes through one stable client DSN rather than a node-specific connection string.
+2. A `remote_apply`-acknowledged authority record is present on the synchronous standby.
+3. The old primary is removed from runnable/network authority before promotion.
+4. The promoted standby continues the same application fencing epoch.
+5. Old-primary crash recovery occurs with no network access.
+6. `pg_rewind` reconciles the divergent former-primary data directory against the new leader.
+7. The former primary receives a listener only after standby recovery configuration exists.
+8. The resurrected former primary is recovery-mode read-only and rejects direct writes.
+9. The original action identity, prepared attempt, and fencing epoch survive rewind/rejoin.
+10. Synchronous streaming is re-established using the former primary as the new standby.
+11. A new fenced mutation through the unchanged stable DSN is remote-applied to that rejoined standby.
 
-## What this layer does not prove
+## Boundary of the claim
 
-The CI `docker kill` is a controlled STONITH analogue, not a production hardware fencing service. The layer does not yet prove:
+The test deliberately does **not** claim a complete production HA control plane.
 
-- BMC/cloud-API power fencing under network partitions;
-- automatic leader election;
-- automatic stable-endpoint failover;
-- quorum-based multi-node fencing;
-- prevention of operator bypass around the fencing controller;
-- cross-region replication/fencing behavior;
-- bounded RTO;
-- external actuator fencing during a simultaneous database failover.
+Still outside the proof:
 
-A production system should require a real fencing authority before promotion and should never allow a previously failed primary to restart writable until it has been proven safe to rejoin.
+- automatic leader election and quorum arbitration;
+- real cloud/hypervisor/PDU/network STONITH;
+- proof that fencing itself remains available during a control-plane partition;
+- preventing two independent automation controllers from issuing conflicting promotions;
+- transparent migration of already-open client TCP sessions;
+- multi-standby quorum behavior;
+- cross-host lease-clock assumptions;
+- measured RTO/SLA;
+- automatic `pg_rewind` orchestration and rollback if rewind fails.
+
+A production next step is an external quorum/fencing coordinator whose authority survives the loss or partition of either PostgreSQL node, with tests that deliberately fail the fencing action itself.
