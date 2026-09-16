@@ -1,5 +1,5 @@
 use lifetra::{
-    CoordinatorId, DatabaseNodeId, FenceOutcome, FenceReceipt, LeadershipGeneration,
+    CoordinatorId, DatabaseNodeId, FenceGrant, FenceOutcome, FenceReceipt, LeadershipGeneration,
     PromotionRequest, QuorumFencingAuthority, QuorumFencingError, QuorumVote, QuorumVoteDecision,
     Timestamp,
 };
@@ -12,7 +12,13 @@ fn node(value: &str) -> DatabaseNodeId {
     DatabaseNodeId::new(value).expect("database node")
 }
 
-fn main() {
+fn setup() -> (
+    QuorumFencingAuthority,
+    LeadershipGeneration,
+    PromotionRequest,
+    QuorumVote,
+    QuorumVote,
+) {
     let mut authority = QuorumFencingAuthority::new(vec![
         coordinator("q1"),
         coordinator("q2"),
@@ -23,7 +29,6 @@ fn main() {
     authority
         .begin_generation(generation)
         .expect("begin first leadership generation");
-
     let request = PromotionRequest::new(
         "promote:db-b",
         generation,
@@ -31,7 +36,6 @@ fn main() {
         node("db-b"),
     )
     .expect("promotion request");
-
     let q1 = QuorumVote::for_request(
         coordinator("q1"),
         &request,
@@ -39,22 +43,6 @@ fn main() {
         "proof:vote:q1",
     )
     .expect("q1 vote");
-    let no_quorum = authority
-        .issue_fence_grant(
-            &request,
-            std::slice::from_ref(&q1),
-            Timestamp::new(10),
-            "grant:must-not-exist",
-        )
-        .expect_err("one of three votes must not authorize fencing");
-    assert_eq!(
-        no_quorum,
-        QuorumFencingError::NoQuorum {
-            approvals: 1,
-            required: 2,
-        }
-    );
-
     let q2 = QuorumVote::for_request(
         coordinator("q2"),
         &request,
@@ -62,6 +50,31 @@ fn main() {
         "proof:vote:q2",
     )
     .expect("q2 vote");
+    (authority, generation, request, q1, q2)
+}
+
+fn require_no_quorum() {
+    let (mut authority, _, request, q1, _) = setup();
+    let err = authority
+        .issue_fence_grant(
+            &request,
+            &[q1],
+            Timestamp::new(10),
+            "grant:must-not-exist",
+        )
+        .expect_err("one of three votes must not authorize fencing");
+    assert_eq!(
+        err,
+        QuorumFencingError::NoQuorum {
+            approvals: 1,
+            required: 2,
+        }
+    );
+    println!("NO_QUORUM approvals=1 required=2");
+}
+
+fn issue_grant() -> (QuorumFencingAuthority, LeadershipGeneration, FenceGrant) {
+    let (mut authority, generation, request, q1, q2) = setup();
     let grant = authority
         .issue_fence_grant(
             &request,
@@ -70,7 +83,20 @@ fn main() {
             "grant:g1:db-a",
         )
         .expect("two of three votes authorize the fencing attempt");
+    println!(
+        "FENCE_GRANT generation={} target={} candidate={} approvals={}/{} grant_ref={}",
+        grant.request.generation.get(),
+        grant.request.failed_primary.as_str(),
+        grant.request.candidate.as_str(),
+        grant.approving_coordinators.len(),
+        authority.member_count(),
+        grant.grant_ref
+    );
+    (authority, generation, grant)
+}
 
+fn require_unknown_fence_blocked() {
+    let (authority, generation, grant) = issue_grant();
     let unknown = FenceReceipt::new(
         generation,
         node("db-a"),
@@ -88,7 +114,11 @@ fn main() {
         ),
         Err(QuorumFencingError::FenceNotConfirmed(FenceOutcome::Unknown))
     ));
+    println!("FENCE_UNKNOWN_BLOCKED generation=1 target=db-a");
+}
 
+fn issue_permit() {
+    let (mut authority, generation, grant) = issue_grant();
     let confirmed = FenceReceipt::new(
         generation,
         node("db-a"),
@@ -103,7 +133,6 @@ fn main() {
     authority
         .validate_promotion_permit(&permit)
         .expect("permit is current");
-
     println!(
         "PROMOTION_PERMIT generation={} failed={} candidate={} approvals={}/{} fence_proof={} permit_ref={}",
         permit.request.generation.get(),
@@ -125,4 +154,25 @@ fn main() {
             permit: 1
         })
     ));
+    println!("STALE_PERMIT_BLOCKED permit_generation=1 current_generation=2");
+}
+
+fn main() {
+    match std::env::var("LIFETRA_QUORUM_PHASE")
+        .unwrap_or_else(|_| "full".into())
+        .as_str()
+    {
+        "deny-no-quorum" => require_no_quorum(),
+        "fence-grant" => {
+            issue_grant();
+        }
+        "deny-unknown-fence" => require_unknown_fence_blocked(),
+        "promotion-permit" => issue_permit(),
+        "full" => {
+            require_no_quorum();
+            require_unknown_fence_blocked();
+            issue_permit();
+        }
+        other => panic!("unsupported LIFETRA_QUORUM_PHASE: {other}"),
+    }
 }
