@@ -73,15 +73,17 @@ fn confirmed_small_delta_can_emit_an_allowed_next_action() {
 
     assert_eq!(decision.verdict, "ALLOW");
     assert!(decision.authority_proof_ref.is_some());
-    let next = decision.next_action.expect("allowed decision needs next action");
+    let next = decision
+        .next_action
+        .expect("allowed decision needs next action");
     assert_eq!(next.action_id, "action-002");
     assert!(next.inputs.contains_key("lifetra"));
 }
 
 #[test]
 fn unknown_effect_blocks_without_collapsing_to_failure_or_success() {
-    let decision = evaluate_request(request("UNKNOWN", None))
-        .expect("UNKNOWN is a valid observation state");
+    let decision =
+        evaluate_request(request("UNKNOWN", None)).expect("UNKNOWN is a valid observation state");
 
     assert_eq!(decision.verdict, "BLOCK");
     assert!(decision.authority_proof_ref.is_none());
