@@ -1,0 +1,230 @@
+name: PostgreSQL Quorum Failover CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - work
+  pull_request:
+
+jobs:
+  postgres-quorum-failover:
+    runs-on: ubuntu-latest
+    env:
+      PRIMARY_DSN: postgresql://lifetra:lifetra@localhost:56432/lifetra
+      STANDBY_DSN: postgresql://lifetra:lifetra@localhost:56433/lifetra
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Compile quorum and HA probes
+        run: cargo check --example quorum_fencing_gate --example postgres_ha_failover_probe
+
+      - name: Prove no-quorum and unknown-fence fail closed
+        run: |
+          set -euo pipefail
+          LIFETRA_QUORUM_PHASE=deny-no-quorum \
+            cargo run --quiet --example quorum_fencing_gate | tee "$RUNNER_TEMP/no-quorum.txt"
+          grep -Fq "NO_QUORUM approvals=1 required=2" "$RUNNER_TEMP/no-quorum.txt"
+
+          LIFETRA_QUORUM_PHASE=deny-unknown-fence \
+            cargo run --quiet --example quorum_fencing_gate | tee "$RUNNER_TEMP/unknown-fence.txt"
+          grep -Fq "FENCE_UNKNOWN_BLOCKED generation=1 target=db-a" "$RUNNER_TEMP/unknown-fence.txt"
+
+      - name: Start PostgreSQL primary
+        run: |
+          set -euo pipefail
+          docker network create lifetra-quorum
+          docker volume create lifetra-quorum-primary-data
+          docker volume create lifetra-quorum-standby-data
+          docker run -d \
+            --name lifetra-quorum-primary \
+            --network lifetra-quorum \
+            --network-alias db-a \
+            -p 56432:5432 \
+            -e POSTGRES_USER=lifetra \
+            -e POSTGRES_PASSWORD=lifetra \
+            -e POSTGRES_DB=lifetra \
+            -e POSTGRES_INITDB_ARGS=--data-checksums \
+            -v lifetra-quorum-primary-data:/var/lib/postgresql/data \
+            postgres:17 \
+            postgres \
+              -c wal_level=replica \
+              -c max_wal_senders=10 \
+              -c max_replication_slots=10 \
+              -c hot_standby=on
+
+          for attempt in $(seq 1 30); do
+            if docker exec lifetra-quorum-primary pg_isready -U lifetra -d lifetra; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "primary did not become ready" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker exec lifetra-quorum-primary bash -ec \
+            'echo "host replication all 0.0.0.0/0 scram-sha-256" >> "$PGDATA/pg_hba.conf"'
+          docker exec lifetra-quorum-primary psql -U lifetra -d lifetra -v ON_ERROR_STOP=1 \
+            -c "SELECT pg_reload_conf();"
+
+      - name: Bootstrap synchronous standby
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --network lifetra-quorum \
+            -v lifetra-quorum-standby-data:/var/lib/postgresql/data \
+            postgres:17 \
+            bash -ec '
+              chown postgres:postgres /var/lib/postgresql/data
+              exec gosu postgres pg_basebackup \
+                -d "host=db-a port=5432 user=lifetra password=lifetra application_name=lifetra_quorum_standby" \
+                -D /var/lib/postgresql/data \
+                -Fp -Xs -P -R -C -S lifetra_quorum_slot
+            '
+
+          docker run -d \
+            --name lifetra-quorum-standby \
+            --network lifetra-quorum \
+            --network-alias db-b \
+            -p 56433:5432 \
+            -v lifetra-quorum-standby-data:/var/lib/postgresql/data \
+            postgres:17 \
+            postgres -c hot_standby=on
+
+          for attempt in $(seq 1 30); do
+            if docker exec lifetra-quorum-standby pg_isready -U lifetra -d lifetra; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "standby did not become ready" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker exec lifetra-quorum-primary psql -U lifetra -d lifetra -v ON_ERROR_STOP=1 \
+            -c "ALTER SYSTEM SET synchronous_standby_names = 'FIRST 1 (lifetra_quorum_standby)';" \
+            -c "ALTER SYSTEM SET synchronous_commit = 'remote_apply';" \
+            -c "SELECT pg_reload_conf();"
+
+          for attempt in $(seq 1 30); do
+            state="$(docker exec lifetra-quorum-primary psql -U lifetra -d lifetra -Atc \
+              "SELECT state || ':' || sync_state FROM pg_stat_replication WHERE application_name = 'lifetra_quorum_standby' LIMIT 1;")"
+            if [ "$state" = "streaming:sync" ]; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "quorum standby never became synchronous; last state=$state" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          test "$(docker exec lifetra-quorum-primary psql -U lifetra -d lifetra -Atc 'SHOW synchronous_commit;')" = "remote_apply"
+
+      - name: Seed Lifetra fenced state before control-plane failover
+        env:
+          LIFETRA_POSTGRES_URL: ${{ env.PRIMARY_DSN }}
+          LIFETRA_HA_PHASE: seed
+        run: cargo run --quiet --example postgres_ha_failover_probe
+
+      - name: Verify remote-applied Lifetra state on candidate
+        env:
+          LIFETRA_POSTGRES_URL: ${{ env.STANDBY_DSN }}
+          LIFETRA_HA_PHASE: standby
+        run: |
+          test "$(docker exec lifetra-quorum-standby psql -U lifetra -d lifetra -Atc 'SELECT pg_is_in_recovery();')" = "t"
+          cargo run --quiet --example postgres_ha_failover_probe
+
+      - name: Issue 2-of-3 quorum fence grant
+        run: |
+          set -euo pipefail
+          LIFETRA_QUORUM_PHASE=fence-grant \
+            cargo run --quiet --example quorum_fencing_gate | tee "$RUNNER_TEMP/fence-grant.txt"
+          grep -Fq \
+            "FENCE_GRANT generation=1 target=db-a candidate=db-b approvals=2/3 grant_ref=grant:g1:db-a" \
+            "$RUNNER_TEMP/fence-grant.txt"
+
+      - name: Power-fence failed primary under quorum grant
+        run: |
+          set -euo pipefail
+          grep -Fq \
+            "FENCE_GRANT generation=1 target=db-a candidate=db-b approvals=2/3 grant_ref=grant:g1:db-a" \
+            "$RUNNER_TEMP/fence-grant.txt"
+
+          docker kill lifetra-quorum-primary
+          docker rm lifetra-quorum-primary
+
+          if docker start lifetra-quorum-primary 2>/dev/null; then
+            echo "old primary unexpectedly remained restartable after fencing" >&2
+            exit 1
+          fi
+
+          if docker run --rm --network host postgres:17 \
+            pg_isready -h 127.0.0.1 -p 56432 -U lifetra -d lifetra; then
+            echo "old primary remained reachable after fencing" >&2
+            exit 1
+          fi
+
+          printf '%s\n' \
+            'FENCE_CONFIRMED generation=1 target=db-a proof=proof:fence:db-a:off' \
+            > "$RUNNER_TEMP/fence-receipt.txt"
+
+      - name: Issue promotion permit only after confirmed fencing
+        run: |
+          set -euo pipefail
+          grep -Fq \
+            "FENCE_CONFIRMED generation=1 target=db-a proof=proof:fence:db-a:off" \
+            "$RUNNER_TEMP/fence-receipt.txt"
+          LIFETRA_QUORUM_PHASE=promotion-permit \
+            cargo run --quiet --example quorum_fencing_gate | tee "$RUNNER_TEMP/promotion-permit.txt"
+          grep -Fq \
+            "PROMOTION_PERMIT generation=1 failed=db-a candidate=db-b approvals=2/3 fence_proof=proof:fence:db-a:off permit_ref=permit:g1:db-b" \
+            "$RUNNER_TEMP/promotion-permit.txt"
+          grep -Fq \
+            "STALE_PERMIT_BLOCKED permit_generation=1 current_generation=2" \
+            "$RUNNER_TEMP/promotion-permit.txt"
+
+      - name: Promote candidate only with current quorum permit
+        run: |
+          set -euo pipefail
+          grep -Fq \
+            "PROMOTION_PERMIT generation=1 failed=db-a candidate=db-b approvals=2/3 fence_proof=proof:fence:db-a:off permit_ref=permit:g1:db-b" \
+            "$RUNNER_TEMP/promotion-permit.txt"
+
+          docker exec --user postgres lifetra-quorum-standby \
+            pg_ctl -D /var/lib/postgresql/data promote -w
+          for attempt in $(seq 1 30); do
+            recovery="$(docker exec lifetra-quorum-standby psql -U lifetra -d lifetra -Atc 'SELECT pg_is_in_recovery();')"
+            if [ "$recovery" = "f" ]; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "quorum-authorized candidate was not promoted" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Continue Lifetra authority after quorum-authorized promotion
+        env:
+          LIFETRA_POSTGRES_URL: ${{ env.STANDBY_DSN }}
+          LIFETRA_HA_PHASE: promoted
+        run: cargo run --quiet --example postgres_ha_failover_probe
+
+      - name: Cleanup quorum failover topology
+        if: always()
+        run: |
+          docker rm -f lifetra-quorum-primary lifetra-quorum-standby 2>/dev/null || true
+          docker volume rm lifetra-quorum-primary-data lifetra-quorum-standby-data 2>/dev/null || true
+          docker network rm lifetra-quorum 2>/dev/null || true

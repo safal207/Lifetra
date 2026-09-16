@@ -1,17 +1,109 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+## Unreleased (v0.2 development)
 
-## [0.1.0] - 2026-03-22
+### Trajectory Bead Graph
 
-### Added
+- add `lifetra-bead` as a bounded local-reality layer over persistent trajectories;
+- add explicit `Unknown`, `Supported`, and `Contradicted` evidence semantics;
+- add proof-gated `BeadCommit` transitions back into `TrajectoryState`;
+- add `BeadChain` for linear proof-carrying trajectory continuity;
+- preserve temporal gaps explicitly and reject overlap on one linear chain;
+- add `ProofCarry` receipts and proof-continuity validation;
+- add provenance-preserving causal zoom from finer beads into coarser temporal beads;
+- preserve unresolved unknowns during aggregation so zoom cannot manufacture certainty;
+- add proof-backed `ProvenOrientation` and signed `OrientationDelta` at the top-level orchestration layer;
+- keep intention separate from evidence: orientation delta can only be derived from a commit that carries proof references;
+- add bounded `CorrectionPolicy` with proportional gain, per-axis hysteresis, deadband, and maximum step;
+- add `CorrectionMemory`, `OrientationAdjustment`, and proof-linked `CorrectionDecision` for the next planning step;
+- keep correction separate from evidence: control can change the next intention but cannot rewrite proven movement;
+- add `SafetyEnvelope` and `DecisionAuthority` to separate correction proposals from execution permission;
+- add explicit autonomy levels, three-valued human approval, quorum requirements, soft autonomous limits, and non-overridable hard limits;
+- block insufficient proof even when approval exists, preserving the invariant that authority cannot manufacture evidence;
+- distinguish `Allow(Automatic)`, `Allow(ApprovedManual)`, `RequireApproval`, and `Block` authority outcomes;
+- add stable `ActionId`, `AuthorityTicket`, `DispatchReceipt`, `ExternalExecutionReceipt`, and `ExecutionTrace`;
+- keep authorization, dispatch, and externally confirmed effect as separate proof boundaries;
+- preserve `DispatchedEffectUnknown` so missing external acknowledgement is neither success nor failure;
+- reject duplicate receipts and temporally invalid receipt ordering instead of silently rewriting execution history;
+- add `IdempotencyBinding`, `ReconciliationReceipt`, `RetryPolicy`, and `RetryAuthority` for fail-closed redispatch control;
+- require reconciliation before any retry from `DispatchedEffectUnknown` and keep `StillUnknown` non-retryable;
+- distinguish `NoEffectConfirmed` from generic not-found/silence so absence of a record cannot silently authorize another side effect;
+- preserve one `ActionId` and idempotency binding across redispatch decisions, with explicit retry limits and ordinals;
+- add append-only `AttemptLedger`, `AttemptId`, and attempt-scoped dispatch/reconciliation/external receipts so one logical action can preserve multiple physical attempts;
+- derive redispatch count from attempt history and require each redispatch decision to carry the previous attempt's retry-safe resolution proof;
+- preserve late and contradictory attempt evidence, blocking further retry when an older attempt later succeeds or evidence disagrees;
+- add fsync-backed `DurableJournal` with write-ahead `PreparedAttempt` records before external side effects;
+- replay durable records into `AttemptLedger` after restart and recover explicit directives for prepared ambiguity, dispatched unknown effects, retry evaluation, success closure, or blocking;
+- treat a recovered prepared-only attempt as ambiguous and reconcile-first instead of converting it into blind redispatch permission;
+- repair an incomplete trailing journal record while rejecting complete checksum corruption or sequence gaps;
+- add provider-neutral `ProviderReconciliationAdapter` and `ProviderReconciler` to turn durable reconcile directives into persisted external proof and retry/close verdicts;
+- keep provider observations separate from local dispatch receipts, including proof-backed ordinal gaps after externally resolved prepared attempts;
+- require provider observations to be durably recorded before returning retry permission, while adapter failures leave journal history unchanged;
+- keep generic timeout, silence, or not-found semantics at `StillUnknown` unless provider evidence actually establishes `NoEffectConfirmed`;
+- add CAS-backed `RecoveryLeaseStore`, monotonic `FencingToken` epochs, lease renewal revisions, and `RecoveryLeaseManager` for split-brain recovery authority;
+- add `FencedAttemptPermit` and `FencedDurableJournal` so stale epochs cannot continue mutating through the fenced runtime after a newer owner acquires the action;
+- keep lease timeout distinct from proof that the old process stopped, and require downstream resources to enforce fencing epochs for end-to-end stale-worker rejection;
+- include `InMemoryRecoveryLeaseStore` only as a process-local test/example CAS backend, while production multi-worker deployments require a shared atomic lease store and authoritative lease time;
+- add provider-neutral `FencedActuatorAdapter`, `FencedActuatorRequest`, `FencedActuatorReceipt`, and `FencedActuatorController` for side-effect-boundary epoch enforcement;
+- bind each fenced request to stable `ActionId`, idempotency key, attempt ordinal, owner, fencing epoch, and `operation_ref`, preventing a newer epoch from changing the semantic operation under an existing action identity;
+- distinguish `Applied`, `AlreadyApplied`, and explicit downstream rejections for stale/future epochs, wrong owners, expired authority, and identity conflicts;
+- add `InMemoryFencedActuator` as a process-local atomic compare+apply reference implementation that rejects stale requests before effect insertion and prevents duplicate application of the same logical effect;
+- keep downstream actuator receipts separate from local dispatch receipts and require production actuators to make fence comparison plus side-effect commit one atomic resource operation;
+- add `DurableActuatorReceiptBridge` as a durable sidecar binding `ActionId`, idempotency key, `operation_ref`, fenced permit identity, actuator receipts, and recovery observations before they are projected into the main journal;
+- persist actuator success evidence before main-journal projection and replay unsynced evidence idempotently by proof reference after a crash between the two stores;
+- recover the crash-after-external-apply/before-local-receipt window by reconciling the durable `ActionId + idempotency_key + operation_ref` identity instead of assuming that a missing receipt means no effect;
+- project positive actuator evidence as external success when local dispatch exists or reconciliation success when it does not, without fabricating a `DispatchReceipt`;
+- keep rejected/unknown actuator observations at `StillUnknown` so rejection never silently becomes `NoEffectConfirmed` or retry permission;
+- allow positive durable actuator evidence to become `EvidenceRef::Supported` for a later trajectory bead, closing the external-proof loop without rewriting past bead knowledge;
+- add provider-neutral `UnifiedFencedStore` and `UnifiedFencedRuntime` so operation binding, lease/fencing authority, physical-attempt intent, external evidence, and bead-projection markers can live in one CAS-versioned action record;
+- commit positive external evidence and its projection marker in the same record replacement, eliminating the local receipt-to-projection gap inside the unified store;
+- keep current execution authority separate from evidence admission: a stale epoch cannot create new execution intent, while a valid late receipt from a prior epoch may still be preserved as evidence about the past;
+- preserve reconciliation-first semantics for rejected/unknown receipts and require explicit retry-proof lineage before a later attempt is prepared;
+- expose record-level CAS contention instead of partially applying only a lease, attempt, evidence, or projection subset;
+- include `InMemoryUnifiedFencedStore` only as a process-local atomic reference backend and keep arbitrary external side effects outside the store transaction unless the provider shares the same transactional substrate;
+- add `PostgresUnifiedFencedStore` and `PostgresUnifiedFencedRuntime` as a shared PostgreSQL implementation of the unified action record contract;
+- execute existing-record CAS under a PostgreSQL transaction with `SELECT ... FOR UPDATE`, revision validation, and `clock_timestamp()`-based transition checks before committing the whole replacement record;
+- use PostgreSQL time as lease authority and revalidate lease-sensitive prepare/dispatch mutations inside the locked CAS transaction, so an expiry between preflight and commit cannot silently authorize new execution intent;
+- serialize concurrent schema startup with a transaction-scoped PostgreSQL advisory lock, avoiding system-catalog races around simultaneous `CREATE TABLE IF NOT EXISTS` calls;
+- exercise the PostgreSQL backend in CI against a real PostgreSQL 17 service, including independent-connection CAS contention, real DB-time expiry, late evidence admission, and proof-lineage retry persistence;
+- keep arbitrary remote payments, chains, and HTTP side effects outside the SQL transaction unless the external resource explicitly participates in the same transactional substrate;
+- run PostgreSQL unified-state CAS attempts at `SERIALIZABLE` and classify database failures by transaction phase instead of treating every error as the same retry signal;
+- retry whole transactions only for PostgreSQL-aborted serialization/deadlock failures or connection loss known before commit, bounded by `PostgresTransactionRetryPolicy`;
+- reconcile ambiguous COMMIT acknowledgement through durable revision/payload state, distinguishing `Applied`, `NotApplied`, `Contended`, and fail-closed `Unknown`;
+- keep a superseded ambiguous COMMIT at `Unknown` rather than using a later revision as proof of whether the older write committed;
+- add deterministic SQLSTATE fault classification tests plus PostgreSQL-backed commit-outcome recovery tests;
+- add a test-only TCP PostgreSQL fault proxy that cuts a connection before COMMIT and at the exact post-COMMIT `CommandComplete("COMMIT")` boundary;
+- require the post-COMMIT fault to observe exact frontend `Query("COMMIT")` and backend `CommandComplete("COMMIT")` protocol frames before dropping the acknowledgement, preventing timing-based false commit evidence;
+- verify on a live PostgreSQL 17 service that pre-COMMIT connection loss retries a fresh whole transaction while post-COMMIT acknowledgement loss reconciles the already durable replacement instead of replaying it blindly;
+- add a CI restart probe that seeds an action and fencing lease, restarts the same PostgreSQL service container, reconnects from a new process, and verifies the durable binding/revision/epoch survive;
+- keep the restart result scoped to single-node restart durability and reconnect behavior rather than claiming replicated PostgreSQL HA/failover;
+- add `docs/postgres-network-fault-recovery.md` and `examples/postgres_restart_probe.rs` for the real network/restart evidence;
+- add a dedicated PostgreSQL HA CI topology with a real primary, `pg_basebackup` physical standby, replication slot, and synchronous streaming state;
+- require `synchronous_commit=remote_apply` and a synchronous standby before seeding Lifetra state, so the tested acknowledged record is already applied on the standby;
+- persist a stable action binding, fencing epoch, and prepared attempt on the primary, then prove that exact state is readable from the standby before primary loss;
+- kill the primary, promote the standby, and successfully renew the same application fencing epoch on the promoted leader, preserving attempt history while advancing lease and record revisions;
+- keep database leadership distinct from application authority: promotion does not mint a new Lifetra fencing epoch by itself;
+- scope the synchronous failover result to the tested two-node topology and keep automatic election, old-primary fencing/rejoin, endpoint failover automation, and RTO guarantees explicit future boundaries;
+- add `docs/postgres-ha-failover.md` and `examples/postgres_ha_failover_probe.rs` for synchronous failover evidence;
+- add a dedicated split-brain CI topology with a stable HAProxy client DSN that is explicitly repointed from the failed primary to the promoted standby while Lifetra keeps the same connection endpoint;
+- power-fence the old primary before promotion and require it to stay stopped while the promoted leader continues the same `ActionId`, operation identity, prepared attempt, and fencing epoch;
+- initialize the split-brain primary with data checksums, then use `pg_rewind` against the promoted leader before the old primary is permitted to restart;
+- reconfigure the rewound old primary with `standby.signal`, a fresh physical replication slot, and a primary connection to the promoted leader;
+- prove the resurrected old primary is in recovery, rejects a direct `CREATE TABLE` write as read-only, and streams from the promoted leader before accepting it as a safe rejoined node;
+- preserve application authority across database role changes and rejoin: the leader and rewound standby expose the same record revision/fencing epoch while only the current database leader remains writable;
+- keep Docker power fencing and explicit endpoint remapping scoped as CI control-plane evidence rather than claiming production hardware STONITH or automatic leader election;
+- add `docs/postgres-split-brain-fencing.md`, `examples/postgres_split_brain_probe.rs`, and a dedicated `PostgreSQL Split-Brain CI` workflow for the resurrection/rejoin proof;
+- add provider-neutral `QuorumFencingAuthority` with unique coordinator membership, majority quorum, monotonic `LeadershipGeneration`, proposal locking, and stale-permit rejection;
+- split database failover authority into `FenceGrant`, externally observed `FenceReceipt`, and `PromotionPermit`, keeping quorum intent separate from proof that the old primary is actually fenced;
+- fail closed when quorum is lost, a coordinator votes twice, a non-member votes, the failed primary remains reachable, fencing is `Unknown`, or a competing candidate appears in the same generation;
+- add a dedicated PostgreSQL quorum-failover CI gate that refuses promotion without both quorum and confirmed old-primary fencing;
+- keep quorum leadership generation distinct from both PostgreSQL role and Lifetra per-action fencing epoch;
+- add `docs/quorum-fencing-authority.md` and `examples/quorum_fencing_gate.rs` for the external promotion-authority contract;
+- add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, reconciliation-retry, attempt-ledger, durable-journal, provider-reconciliation, recovery-lease-fencing, fenced-actuator, actuator-receipt-bridge, unified-fenced-store, and postgres-unified-store examples plus architecture documentation.
 
-- GitHub Actions CI for `cargo check`, `cargo test`, `cargo clippy -- -D warnings`, and `cargo fmt --check`.
-- First-pass domain helper methods across causality, orientation, trajectory, reflection, resonance, and synergy.
-- Aggregate analysis helpers on `EntityState`: `summary()`, `health_score()`, and `is_coherent()`.
-- `examples/idea_evolution.rs` as the first end-to-end walkthrough for a modeled idea.
+## 0.1.0
 
-### Documentation
-
-- Clarified that `CausalState::total_influence()` is cumulative and may exceed `1.0`.
-- Documented the current v0.1 coherence semantics used by `EntityState::is_coherent()`.
+- establish the Lifetra Rust workspace and six coupled domain dimensions;
+- add aggregate `EntityState` composition and coherence helpers;
+- add Python bindings with PyO3/maturin;
+- add Colab demos and CI validation.
