@@ -118,7 +118,7 @@ A duplicate coordinator cannot manufacture quorum by voting twice.
 
 ## CI integration
 
-The split-brain workflow uses the quorum example as a gate around the promotion sequence.
+A dedicated `PostgreSQL Quorum Failover CI` workflow validates the quorum gate separately from the Layer 19 split-brain/rewind workflow. It uses a real synchronous PostgreSQL primary/standby pair but keeps the coordinator implementation provider-neutral.
 
 The intended order is:
 
@@ -130,14 +130,17 @@ The intended order is:
 5. prove old primary is no longer reachable
 6. convert the confirmed fence observation into PromotionPermit
 7. only then run pg_ctl promote on the candidate
+8. continue the existing Lifetra action fencing epoch on the promoted node
 ```
 
-The example also proves that:
+The example and CI also prove that:
 
 - one of three votes returns `NoQuorum`;
 - quorum plus an `Unknown` fence receipt still cannot issue a permit;
 - quorum plus `ConfirmedFenced` can issue a permit;
 - beginning generation 2 invalidates the generation 1 permit.
+
+Layer 19 remains a separate regression proof for stable endpoint routing, old-primary resurrection, `pg_rewind`, read-only rejoin, and restored synchronous redundancy.
 
 ## Invariants
 
