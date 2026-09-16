@@ -131,8 +131,7 @@ fn non_empty_id(value: &str) -> Option<String> {
 
 fn encode_error(error: StationError) -> String {
     serde_json::to_string(&error).unwrap_or_else(|_| {
-        "{\"protocol\":\"lifetra.station.error.v0.2\",\"error\":\"encode failure\"}"
-            .to_string()
+        "{\"protocol\":\"lifetra.station.error.v0.2\",\"error\":\"encode failure\"}".to_string()
     })
 }
 
@@ -219,7 +218,8 @@ fn run() -> Result<(), String> {
 
         match decode_envelope(&line) {
             Ok(envelope) => {
-                if let Err(error) = reserve_request_id(&mut seen_request_ids, &envelope.request_id) {
+                if let Err(error) = reserve_request_id(&mut seen_request_ids, &envelope.request_id)
+                {
                     response_tx
                         .send(encode_error(error))
                         .map_err(|_| "Metro response writer closed unexpectedly".to_string())?;
@@ -266,7 +266,8 @@ mod tests {
 
     #[test]
     fn envelope_requires_request_id_before_payload_decode() {
-        let line = r#"{"protocol":"lifetra.station.request-envelope.v0.2","request_id":"","request":{}}"#;
+        let line =
+            r#"{"protocol":"lifetra.station.request-envelope.v0.2","request_id":"","request":{}}"#;
         let error = decode_envelope(line).expect_err("empty request_id must fail closed");
         assert_eq!(error.protocol, ERROR_PROTOCOL);
         assert!(error.error.contains("request_id"));
