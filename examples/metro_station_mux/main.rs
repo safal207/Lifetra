@@ -7,6 +7,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use support::{evaluate_request, StationDecision, StationRequest};
 
 const REQUEST_PROTOCOL: &str = "lifetra.station.request-envelope.v0.2";
@@ -64,20 +65,29 @@ fn parse_workers() -> Result<usize, String> {
 }
 
 fn decode_envelope(line: &str) -> Result<RequestEnvelope, StationError> {
-    let envelope: RequestEnvelope = serde_json::from_str(line).map_err(|error| StationError {
+    let value: Value = serde_json::from_str(line).map_err(|error| StationError {
         protocol: ERROR_PROTOCOL,
         request_id: None,
         error: format!("decode request envelope JSON: {error}"),
     })?;
 
-    if envelope.protocol != REQUEST_PROTOCOL {
+    let request_id = value
+        .get("request_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let protocol = value
+        .get("protocol")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    if protocol != REQUEST_PROTOCOL {
         return Err(StationError {
             protocol: ERROR_PROTOCOL,
-            request_id: non_empty_id(&envelope.request_id),
-            error: format!("unsupported request envelope protocol {:?}", envelope.protocol),
+            request_id: non_empty_id(request_id),
+            error: format!("unsupported request envelope protocol {protocol:?}"),
         });
     }
-    if envelope.request_id.is_empty() {
+    if request_id.is_empty() {
         return Err(StationError {
             protocol: ERROR_PROTOCOL,
             request_id: None,
@@ -85,7 +95,11 @@ fn decode_envelope(line: &str) -> Result<RequestEnvelope, StationError> {
         });
     }
 
-    Ok(envelope)
+    serde_json::from_value(value).map_err(|error| StationError {
+        protocol: ERROR_PROTOCOL,
+        request_id: Some(request_id.to_owned()),
+        error: format!("decode station request payload: {error}"),
+    })
 }
 
 fn non_empty_id(value: &str) -> Option<String> {
@@ -223,11 +237,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn envelope_requires_request_id() {
+    fn envelope_requires_request_id_before_payload_decode() {
         let line = r#"{"protocol":"lifetra.station.request-envelope.v0.2","request_id":"","request":{}}"#;
         let error = decode_envelope(line).expect_err("empty request_id must fail closed");
         assert_eq!(error.protocol, ERROR_PROTOCOL);
         assert!(error.error.contains("request_id"));
+    }
+
+    #[test]
+    fn invalid_payload_error_preserves_request_id() {
+        let line = r#"{"protocol":"lifetra.station.request-envelope.v0.2","request_id":"req-1","request":{}}"#;
+        let error = decode_envelope(line).expect_err("invalid request payload must fail closed");
+        assert_eq!(error.request_id.as_deref(), Some("req-1"));
+        assert!(error.error.contains("station request payload"));
     }
 
     #[test]
