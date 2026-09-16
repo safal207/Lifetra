@@ -29,13 +29,8 @@ fn setup() -> (
     authority
         .begin_generation(generation)
         .expect("begin first leadership generation");
-    let request = PromotionRequest::new(
-        "promote:db-b",
-        generation,
-        node("db-a"),
-        node("db-b"),
-    )
-    .expect("promotion request");
+    let request = PromotionRequest::new("promote:db-b", generation, node("db-a"), node("db-b"))
+        .expect("promotion request");
     let q1 = QuorumVote::for_request(
         coordinator("q1"),
         &request,
@@ -56,12 +51,7 @@ fn setup() -> (
 fn require_no_quorum() {
     let (mut authority, _, request, q1, _) = setup();
     let err = authority
-        .issue_fence_grant(
-            &request,
-            &[q1],
-            Timestamp::new(10),
-            "grant:must-not-exist",
-        )
+        .issue_fence_grant(&request, &[q1], Timestamp::new(10), "grant:must-not-exist")
         .expect_err("one of three votes must not authorize fencing");
     assert_eq!(
         err,
@@ -76,12 +66,7 @@ fn require_no_quorum() {
 fn issue_grant() -> (QuorumFencingAuthority, LeadershipGeneration, FenceGrant) {
     let (mut authority, generation, request, q1, q2) = setup();
     let grant = authority
-        .issue_fence_grant(
-            &request,
-            &[q1, q2],
-            Timestamp::new(11),
-            "grant:g1:db-a",
-        )
+        .issue_fence_grant(&request, &[q1, q2], Timestamp::new(11), "grant:g1:db-a")
         .expect("two of three votes authorize the fencing attempt");
     println!(
         "FENCE_GRANT generation={} target={} candidate={} approvals={}/{} grant_ref={}",

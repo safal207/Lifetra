@@ -202,7 +202,9 @@ pub enum QuorumFencingError {
     EmptyProofRef,
     InvalidGeneration(u64),
     GenerationOverflow,
-    NotEnoughMembers { members: usize },
+    NotEnoughMembers {
+        members: usize,
+    },
     DuplicateMember(String),
     SameFailedAndCandidate,
     GenerationNotCurrent {
@@ -216,7 +218,10 @@ pub enum QuorumFencingError {
     UnknownCoordinator(String),
     DuplicateVote(String),
     VoteIdentityMismatch(String),
-    NoQuorum { approvals: usize, required: usize },
+    NoQuorum {
+        approvals: usize,
+        required: usize,
+    },
     CompetingProposal {
         generation: u64,
         locked_request_id: String,
@@ -394,10 +399,7 @@ impl QuorumFencingAuthority {
         Ok(())
     }
 
-    fn require_current(
-        &self,
-        generation: LeadershipGeneration,
-    ) -> Result<(), QuorumFencingError> {
+    fn require_current(&self, generation: LeadershipGeneration) -> Result<(), QuorumFencingError> {
         if self.current_generation != Some(generation) {
             return Err(QuorumFencingError::GenerationNotCurrent {
                 current: self.current_generation.map(LeadershipGeneration::get),
@@ -477,8 +479,7 @@ mod tests {
     }
 
     fn request(generation: LeadershipGeneration) -> PromotionRequest {
-        PromotionRequest::new("promote:b", generation, node("db-a"), node("db-b"))
-            .expect("request")
+        PromotionRequest::new("promote:b", generation, node("db-a"), node("db-b")).expect("request")
     }
 
     fn vote(
@@ -634,13 +635,8 @@ mod tests {
                 "grant:first",
             )
             .unwrap();
-        let second = PromotionRequest::new(
-            "promote:c",
-            generation,
-            node("db-a"),
-            node("db-c"),
-        )
-        .unwrap();
+        let second =
+            PromotionRequest::new("promote:c", generation, node("db-a"), node("db-c")).unwrap();
         assert!(matches!(
             authority.issue_fence_grant(
                 &second,
@@ -728,7 +724,9 @@ mod tests {
         let permit = authority
             .issue_promotion_permit(&grant, &receipt, Timestamp::new(3), "permit:1")
             .unwrap();
-        authority.begin_generation(generation.next().unwrap()).unwrap();
+        authority
+            .begin_generation(generation.next().unwrap())
+            .unwrap();
         assert_eq!(
             authority.validate_promotion_permit(&permit).unwrap_err(),
             QuorumFencingError::PermitNotCurrent {

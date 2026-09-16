@@ -93,6 +93,12 @@
 - preserve application authority across database role changes and rejoin: the leader and rewound standby expose the same record revision/fencing epoch while only the current database leader remains writable;
 - keep Docker power fencing and explicit endpoint remapping scoped as CI control-plane evidence rather than claiming production hardware STONITH or automatic leader election;
 - add `docs/postgres-split-brain-fencing.md`, `examples/postgres_split_brain_probe.rs`, and a dedicated `PostgreSQL Split-Brain CI` workflow for the resurrection/rejoin proof;
+- add provider-neutral `QuorumFencingAuthority` with unique coordinator membership, majority quorum, monotonic `LeadershipGeneration`, proposal locking, and stale-permit rejection;
+- split database failover authority into `FenceGrant`, externally observed `FenceReceipt`, and `PromotionPermit`, keeping quorum intent separate from proof that the old primary is actually fenced;
+- fail closed when quorum is lost, a coordinator votes twice, a non-member votes, the failed primary remains reachable, fencing is `Unknown`, or a competing candidate appears in the same generation;
+- add a dedicated PostgreSQL quorum-failover CI gate that refuses promotion without both quorum and confirmed old-primary fencing;
+- keep quorum leadership generation distinct from both PostgreSQL role and Lifetra per-action fencing epoch;
+- add `docs/quorum-fencing-authority.md` and `examples/quorum_fencing_gate.rs` for the external promotion-authority contract;
 - add recovery, bead-chain, orientation-delta, correction-loop, authority-gate, execution-receipt, reconciliation-retry, attempt-ledger, durable-journal, provider-reconciliation, recovery-lease-fencing, fenced-actuator, actuator-receipt-bridge, unified-fenced-store, and postgres-unified-store examples plus architecture documentation.
 
 ## 0.1.0

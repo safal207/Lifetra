@@ -19,6 +19,7 @@ mod orientation_delta;
 mod postgres_resilience;
 mod postgres_unified_store;
 mod provider_reconciliation;
+mod quorum_fencing;
 mod reconciliation;
 mod recovery_lease;
 mod safety_authority;
@@ -77,6 +78,11 @@ pub use provider_reconciliation::{
     ProviderObservation, ProviderReconciler, ProviderReconciliationAdapter,
     ProviderReconciliationError, ProviderReconciliationPhase, ProviderReconciliationQuery,
     ProviderReconciliationResult,
+};
+pub use quorum_fencing::{
+    CoordinatorId, DatabaseNodeId, FenceGrant, FenceOutcome, FenceReceipt, LeadershipGeneration,
+    PromotionPermit, PromotionRequest, QuorumFencingAuthority, QuorumFencingError, QuorumVote,
+    QuorumVoteDecision,
 };
 pub use reconciliation::{
     IdempotencyBinding, ReconciliationOutcome, ReconciliationReceipt, RetryAuthority, RetryBlock,
