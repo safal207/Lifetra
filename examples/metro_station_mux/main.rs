@@ -74,16 +74,18 @@ fn decode_envelope(line: &str) -> Result<RequestEnvelope, StationError> {
     let request_id = value
         .get("request_id")
         .and_then(Value::as_str)
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .to_owned();
     let protocol = value
         .get("protocol")
         .and_then(Value::as_str)
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .to_owned();
 
     if protocol != REQUEST_PROTOCOL {
         return Err(StationError {
             protocol: ERROR_PROTOCOL,
-            request_id: non_empty_id(request_id),
+            request_id: non_empty_id(&request_id),
             error: format!("unsupported request envelope protocol {protocol:?}"),
         });
     }
@@ -97,7 +99,7 @@ fn decode_envelope(line: &str) -> Result<RequestEnvelope, StationError> {
 
     serde_json::from_value(value).map_err(|error| StationError {
         protocol: ERROR_PROTOCOL,
-        request_id: Some(request_id.to_owned()),
+        request_id: Some(request_id.clone()),
         error: format!("decode station request payload: {error}"),
     })
 }
