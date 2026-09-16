@@ -178,7 +178,8 @@ pub fn evaluate_request(request: StationRequest) -> Result<StationDecision, Stri
 
     let proven = ProvenOrientation::from_commit(observed.into_vector(), &commit)
         .map_err(|block| format!("proven orientation blocked: {block:?}"))?;
-    let delta = lifetra::OrientationDelta::between(request.intended_orientation.into_vector(), proven);
+    let delta =
+        lifetra::OrientationDelta::between(request.intended_orientation.into_vector(), proven);
 
     let correction_policy = CorrectionPolicy::new(
         request.correction.gain,
@@ -249,11 +250,17 @@ pub fn evaluate_request(request: StationRequest) -> Result<StationDecision, Stri
 
 fn validate_request(request: &StationRequest) -> Result<(), String> {
     if request.protocol != STATION_REQUEST_PROTOCOL {
-        return Err(format!("unsupported station request protocol {:?}", request.protocol));
+        return Err(format!(
+            "unsupported station request protocol {:?}",
+            request.protocol
+        ));
     }
     let observation = &request.observation;
     if observation.protocol != OBSERVATION_PROTOCOL {
-        return Err(format!("unsupported observation protocol {:?}", observation.protocol));
+        return Err(format!(
+            "unsupported observation protocol {:?}",
+            observation.protocol
+        ));
     }
     if observation.observation_id.is_empty()
         || observation.action_id.is_empty()
@@ -279,11 +286,16 @@ fn validate_request(request: &StationRequest) -> Result<(), String> {
     if observation.proof_refs.is_empty() || !unique_non_empty(&observation.proof_refs) {
         return Err("proof_refs must be non-empty and unique".into());
     }
+    if matches!(observation.previous_bead_ref.as_deref(), Some("")) {
+        return Err("previous_bead_ref must be non-empty when present".into());
+    }
     if observation.observed_at.is_empty() || request.decided_at.is_empty() {
         return Err("observed_at and decided_at are required".into());
     }
 
-    request.intended_orientation.validate("intended_orientation")?;
+    request
+        .intended_orientation
+        .validate("intended_orientation")?;
     if let Some(observed) = request.observed_orientation {
         observed.validate("observed_orientation")?;
     }
