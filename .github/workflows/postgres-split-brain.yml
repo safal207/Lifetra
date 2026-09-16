@@ -27,6 +27,9 @@ jobs:
       - name: Cache cargo registry and build artifacts
         uses: Swatinem/rust-cache@v2
 
+      - name: Compile split-brain probe
+        run: cargo check --example postgres_split_brain_probe
+
       - name: Start checksummed PostgreSQL primary
         run: |
           set -euo pipefail
@@ -177,7 +180,24 @@ jobs:
         run: |
           set -euo pipefail
           docker kill lifetra-sb-primary
-          test "$(docker inspect -f '{{.State.Running}}' lifetra-sb-primary)" = "false"
+          docker rm lifetra-sb-primary
+
+          if docker start lifetra-sb-primary 2>/dev/null; then
+            echo "old primary unexpectedly remained restartable after power fence" >&2
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import socket
+          sock = socket.socket()
+          sock.settimeout(0.5)
+          try:
+              code = sock.connect_ex(("127.0.0.1", 55432))
+          finally:
+              sock.close()
+          if code == 0:
+              raise SystemExit("old-primary PostgreSQL port remained reachable")
+          PY
 
           docker exec --user postgres lifetra-sb-standby \
             pg_ctl -D /var/lib/postgresql/data promote -w
@@ -235,15 +255,31 @@ jobs:
         env:
           LIFETRA_POSTGRES_URL: ${{ env.LEADER_DSN }}
           LIFETRA_SPLIT_BRAIN_PHASE: promoted
+        run: cargo run --quiet --example postgres_split_brain_probe
+
+      - name: Clean old primary data while fully network-fenced
         run: |
-          test "$(docker inspect -f '{{.State.Running}}' lifetra-sb-primary)" = "false"
-          cargo run --quiet --example postgres_split_brain_probe
+          set -euo pipefail
+          if docker ps -a --format '{{.Names}}' | grep -qx lifetra-sb-primary; then
+            echo "old primary container unexpectedly exists before maintenance recovery" >&2
+            exit 1
+          fi
+
+          docker run --rm \
+            --network none \
+            -v lifetra-sb-primary-data:/var/lib/postgresql/data \
+            postgres:17 \
+            bash -ec '
+              chown -R postgres:postgres /var/lib/postgresql/data
+              gosu postgres pg_ctl -D /var/lib/postgresql/data \
+                -o "-c listen_addresses=" -w start
+              gosu postgres pg_ctl -D /var/lib/postgresql/data -m fast -w stop
+            '
+          echo "old primary crash-recovered and cleanly stopped without network authority"
 
       - name: Rewind fenced old primary before resurrection
         run: |
           set -euo pipefail
-          test "$(docker inspect -f '{{.State.Running}}' lifetra-sb-primary)" = "false"
-
           docker exec lifetra-sb-standby psql -U lifetra -d lifetra -v ON_ERROR_STOP=1 \
             -c "SELECT pg_create_physical_replication_slot('lifetra_rejoin_slot');"
 
@@ -252,20 +288,26 @@ jobs:
             -v lifetra-sb-primary-data:/var/lib/postgresql/data \
             postgres:17 \
             bash -ec '
-              rm -f /var/lib/postgresql/data/postmaster.pid
               chown -R postgres:postgres /var/lib/postgresql/data
-              gosu postgres pg_rewind \
+              exec gosu postgres pg_rewind \
                 -D /var/lib/postgresql/data \
-                --source-server="host=lifetra-sb-standby port=5432 user=lifetra password=lifetra dbname=lifetra" \
-                -R -P
-              cat >> /var/lib/postgresql/data/postgresql.auto.conf <<"EOF"
-          primary_conninfo = '\''host=lifetra-sb-standby port=5432 user=lifetra password=lifetra application_name=lifetra_rejoined'\''
-          primary_slot_name = '\''lifetra_rejoin_slot'\''
-          EOF
-              touch /var/lib/postgresql/data/standby.signal
+                --source-server="host=lifetra-sb-standby port=5432 user=lifetra password=lifetra dbname=lifetra application_name=lifetra_rejoined" \
+                --write-recovery-conf \
+                --progress
             '
 
-          docker rm lifetra-sb-primary
+          docker run --rm \
+            -v lifetra-sb-primary-data:/var/lib/postgresql/data \
+            postgres:17 \
+            bash -ec '
+              echo "primary_slot_name = '\''lifetra_rejoin_slot'\''" >> /var/lib/postgresql/data/postgresql.auto.conf
+              chown postgres:postgres /var/lib/postgresql/data/postgresql.auto.conf
+              test -f /var/lib/postgresql/data/standby.signal
+            '
+
+      - name: Rejoin old primary only as read-only standby
+        run: |
+          set -euo pipefail
           docker run -d \
             --name lifetra-sb-rejoined \
             --network lifetra-splitbrain \
@@ -289,41 +331,63 @@ jobs:
             sleep 1
           done
 
-      - name: Prove resurrected old primary is read-only standby
+          test "$(docker exec lifetra-sb-rejoined psql -U lifetra -d lifetra -Atc 'SELECT pg_is_in_recovery();')" = "t"
+          if docker exec lifetra-sb-rejoined psql -U lifetra -d lifetra -v ON_ERROR_STOP=1 \
+            -c 'CREATE TABLE lifetra_split_brain_write_must_fail(id integer);'; then
+            echo "rejoined old primary unexpectedly accepted a write" >&2
+            exit 1
+          fi
+          echo "resurrected old primary is recovery-mode read-only"
+
+      - name: Verify rewound node preserved Lifetra authority history
         env:
           LIFETRA_POSTGRES_URL: ${{ env.REJOIN_DSN }}
           LIFETRA_SPLIT_BRAIN_PHASE: rejoined
+        run: cargo run --quiet --example postgres_split_brain_probe
+
+      - name: Restore synchronous redundancy after rejoin
         run: |
           set -euo pipefail
-          test "$(docker exec lifetra-sb-rejoined psql -U lifetra -d lifetra -Atc 'SELECT pg_is_in_recovery();')" = "t"
-
-          if docker exec lifetra-sb-rejoined psql -U lifetra -d lifetra -v ON_ERROR_STOP=1 \
-            -c 'CREATE TABLE lifetra_split_brain_violation(id integer);'; then
-            echo "resurrected old primary accepted a write" >&2
-            exit 1
-          fi
-          echo "direct write rejected on rewound old primary"
+          docker exec lifetra-sb-standby psql -U lifetra -d lifetra -v ON_ERROR_STOP=1 \
+            -c "ALTER SYSTEM SET synchronous_standby_names = 'FIRST 1 (lifetra_rejoined)';" \
+            -c "ALTER SYSTEM SET synchronous_commit = 'remote_apply';" \
+            -c "SELECT pg_reload_conf();"
 
           for attempt in $(seq 1 30); do
             state="$(docker exec lifetra-sb-standby psql -U lifetra -d lifetra -Atc \
-              "SELECT state FROM pg_stat_replication WHERE application_name = 'lifetra_rejoined' LIMIT 1;")"
-            if [ "$state" = "streaming" ]; then
+              "SELECT state || ':' || sync_state FROM pg_stat_replication WHERE application_name = 'lifetra_rejoined' LIMIT 1;")"
+            if [ "$state" = "streaming:sync" ]; then
               break
             fi
             if [ "$attempt" -eq 30 ]; then
-              echo "rewound old primary did not stream from promoted leader; last state=$state" >&2
+              echo "rejoined node never became synchronous; last state=$state" >&2
               exit 1
             fi
             sleep 1
           done
+          test "$(docker exec lifetra-sb-standby psql -U lifetra -d lifetra -Atc 'SHOW synchronous_commit;')" = "remote_apply"
 
+      - name: Commit through stable endpoint after redundancy is restored
+        env:
+          LIFETRA_POSTGRES_URL: ${{ env.LEADER_DSN }}
+          LIFETRA_SPLIT_BRAIN_PHASE: leader-after-rejoin
+        run: cargo run --quiet --example postgres_split_brain_probe
+
+      - name: Verify remote-apply on rewound former primary
+        env:
+          LIFETRA_POSTGRES_URL: ${{ env.REJOIN_DSN }}
+          LIFETRA_SPLIT_BRAIN_PHASE: rejoined-after-sync
+        run: |
+          test "$(docker exec lifetra-sb-rejoined psql -U lifetra -d lifetra -Atc 'SELECT pg_is_in_recovery();')" = "t"
           cargo run --quiet --example postgres_split_brain_probe
 
-      - name: Verify stable endpoint still resolves current leader
+      - name: Verify stable endpoint still resolves sole writable leader
         env:
           LIFETRA_POSTGRES_URL: ${{ env.LEADER_DSN }}
           LIFETRA_SPLIT_BRAIN_PHASE: leader
-        run: cargo run --quiet --example postgres_split_brain_probe
+        run: |
+          test "$(docker exec lifetra-sb-standby psql -U lifetra -d lifetra -Atc 'SELECT pg_is_in_recovery();')" = "f"
+          cargo run --quiet --example postgres_split_brain_probe
 
       - name: Cleanup probe record
         env:
