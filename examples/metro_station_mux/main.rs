@@ -1,6 +1,7 @@
 #[path = "../metro_station/support.rs"]
 mod support;
 
+use std::collections::HashSet;
 use std::env;
 use std::io::{self, BufRead, Write};
 use std::sync::{mpsc, Arc, Mutex};
@@ -104,6 +105,21 @@ fn decode_envelope(line: &str) -> Result<RequestEnvelope, StationError> {
     })
 }
 
+fn reserve_request_id(
+    seen_request_ids: &mut HashSet<String>,
+    request_id: &str,
+) -> Result<(), StationError> {
+    if seen_request_ids.insert(request_id.to_owned()) {
+        Ok(())
+    } else {
+        Err(StationError {
+            protocol: ERROR_PROTOCOL,
+            request_id: Some(request_id.to_owned()),
+            error: "request_id was already used by this station process".into(),
+        })
+    }
+}
+
 fn non_empty_id(value: &str) -> Option<String> {
     if value.is_empty() {
         None
@@ -184,6 +200,7 @@ fn run() -> Result<(), String> {
     let (job_tx, job_rx) = mpsc::sync_channel::<Job>(DEFAULT_QUEUE_CAPACITY);
     let (response_tx, response_rx) = mpsc::channel::<String>();
     let shared_jobs = Arc::new(Mutex::new(job_rx));
+    let mut seen_request_ids = HashSet::new();
 
     let writer = thread::spawn(move || writer_loop(response_rx));
     let mut workers = Vec::with_capacity(worker_count);
@@ -200,12 +217,20 @@ fn run() -> Result<(), String> {
         }
 
         match decode_envelope(&line) {
-            Ok(envelope) => job_tx
-                .send(Job {
-                    request_id: envelope.request_id,
-                    request: envelope.request,
-                })
-                .map_err(|_| "Metro job queue closed unexpectedly".to_string())?,
+            Ok(envelope) => {
+                if let Err(error) = reserve_request_id(&mut seen_request_ids, &envelope.request_id) {
+                    response_tx
+                        .send(encode_error(error))
+                        .map_err(|_| "Metro response writer closed unexpectedly".to_string())?;
+                    continue;
+                }
+                job_tx
+                    .send(Job {
+                        request_id: envelope.request_id,
+                        request: envelope.request,
+                    })
+                    .map_err(|_| "Metro job queue closed unexpectedly".to_string())?;
+            }
             Err(error) => response_tx
                 .send(encode_error(error))
                 .map_err(|_| "Metro response writer closed unexpectedly".to_string())?,
@@ -252,6 +277,16 @@ mod tests {
         let error = decode_envelope(line).expect_err("invalid request payload must fail closed");
         assert_eq!(error.request_id.as_deref(), Some("req-1"));
         assert!(error.error.contains("station request payload"));
+    }
+
+    #[test]
+    fn duplicate_request_id_is_rejected_for_station_lifetime() {
+        let mut seen = HashSet::new();
+        reserve_request_id(&mut seen, "req-1").expect("first request id must be accepted");
+        let error = reserve_request_id(&mut seen, "req-1")
+            .expect_err("duplicate request id must fail closed");
+        assert_eq!(error.request_id.as_deref(), Some("req-1"));
+        assert!(error.error.contains("already used"));
     }
 
     #[test]
