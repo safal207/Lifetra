@@ -19,7 +19,8 @@ const MAX_WORKERS: usize = 64;
 
 #[derive(Debug, Deserialize)]
 struct RequestEnvelope {
-    protocol: String,
+    #[serde(rename = "protocol")]
+    _protocol: String,
     request_id: String,
     request: StationRequest,
 }
@@ -265,7 +266,7 @@ mod tests {
 
     #[test]
     fn envelope_requires_request_id_before_payload_decode() {
-        let line = r#"{"protocol":"lifetra.station.request-envelope.v0.2","request_id":"","request":{}}"#;
+        let line = r#"{\"protocol\":\"lifetra.station.request-envelope.v0.2\",\"request_id\":\"\",\"request\":{}}"#;
         let error = decode_envelope(line).expect_err("empty request_id must fail closed");
         assert_eq!(error.protocol, ERROR_PROTOCOL);
         assert!(error.error.contains("request_id"));
@@ -273,7 +274,7 @@ mod tests {
 
     #[test]
     fn invalid_payload_error_preserves_request_id() {
-        let line = r#"{"protocol":"lifetra.station.request-envelope.v0.2","request_id":"req-1","request":{}}"#;
+        let line = r#"{\"protocol\":\"lifetra.station.request-envelope.v0.2\",\"request_id\":\"req-1\",\"request\":{}}"#;
         let error = decode_envelope(line).expect_err("invalid request payload must fail closed");
         assert_eq!(error.request_id.as_deref(), Some("req-1"));
         assert!(error.error.contains("station request payload"));
