@@ -51,136 +51,101 @@ jobs:
               '      - name: Compile split-brain and quorum probes\n        run: cargo check --example postgres_split_brain_probe --example quorum_fencing_gate\n',
               1,
           )
-          old = '''      - name: Power-fence old primary and promote standby
-              run: |
-                set -euo pipefail
-                docker kill lifetra-sb-primary
-                docker rm lifetra-sb-primary
+          start_marker = '      - name: Power-fence old primary and promote standby\n'
+          end_marker = '      - name: Repoint stable leader endpoint to promoted standby\n'
+          if start_marker in wf:
+              start = wf.index(start_marker)
+              end = wf.index(end_marker, start)
+              replacement = '''      - name: Prove quorum loss and unknown fencing fail closed
+        run: |
+          set -euo pipefail
+          LIFETRA_QUORUM_PHASE=deny-no-quorum \\
+            cargo run --quiet --example quorum_fencing_gate | tee "$RUNNER_TEMP/no-quorum.txt"
+          grep -Fq "NO_QUORUM approvals=1 required=2" "$RUNNER_TEMP/no-quorum.txt"
 
-                if docker start lifetra-sb-primary 2>/dev/null; then
-                  echo "old primary unexpectedly remained restartable after power fence" >&2
-                  exit 1
-                fi
+          LIFETRA_QUORUM_PHASE=deny-unknown-fence \\
+            cargo run --quiet --example quorum_fencing_gate | tee "$RUNNER_TEMP/unknown-fence.txt"
+          grep -Fq "FENCE_UNKNOWN_BLOCKED generation=1 target=db-a" "$RUNNER_TEMP/unknown-fence.txt"
 
-                python3 - <<'PY'
-                import socket
-                sock = socket.socket()
-                sock.settimeout(0.5)
-                try:
-                    code = sock.connect_ex(("127.0.0.1", 55432))
-                finally:
-                    sock.close()
-                if code == 0:
-                    raise SystemExit("old-primary PostgreSQL port remained reachable")
-                PY
+      - name: Issue quorum fence grant
+        run: |
+          set -euo pipefail
+          LIFETRA_QUORUM_PHASE=fence-grant \\
+            cargo run --quiet --example quorum_fencing_gate | tee "$RUNNER_TEMP/fence-grant.txt"
+          grep -Fq \\
+            "FENCE_GRANT generation=1 target=db-a candidate=db-b approvals=2/3 grant_ref=grant:g1:db-a" \\
+            "$RUNNER_TEMP/fence-grant.txt"
 
-                docker exec --user postgres lifetra-sb-standby \\
-                  pg_ctl -D /var/lib/postgresql/data promote -w
-                for attempt in $(seq 1 30); do
-                  recovery="$(docker exec lifetra-sb-standby psql -U lifetra -d lifetra -Atc 'SELECT pg_is_in_recovery();')"
-                  if [ "$recovery" = "f" ]; then
-                    break
-                  fi
-                  if [ "$attempt" -eq 30 ]; then
-                    echo "standby was not promoted" >&2
-                    exit 1
-                  fi
-                  sleep 1
-                done
-                echo "old primary is power-fenced; standby is promoted"
-          '''
-          new = '''      - name: Prove quorum loss and unknown fencing fail closed
-              run: |
-                set -euo pipefail
-                LIFETRA_QUORUM_PHASE=deny-no-quorum \\
-                  cargo run --quiet --example quorum_fencing_gate | tee "$RUNNER_TEMP/no-quorum.txt"
-                grep -Fq "NO_QUORUM approvals=1 required=2" "$RUNNER_TEMP/no-quorum.txt"
+      - name: Power-fence old primary under quorum grant
+        run: |
+          set -euo pipefail
+          grep -Fq \\
+            "FENCE_GRANT generation=1 target=db-a candidate=db-b approvals=2/3 grant_ref=grant:g1:db-a" \\
+            "$RUNNER_TEMP/fence-grant.txt"
 
-                LIFETRA_QUORUM_PHASE=deny-unknown-fence \\
-                  cargo run --quiet --example quorum_fencing_gate | tee "$RUNNER_TEMP/unknown-fence.txt"
-                grep -Fq "FENCE_UNKNOWN_BLOCKED generation=1 target=db-a" "$RUNNER_TEMP/unknown-fence.txt"
+          docker kill lifetra-sb-primary
+          docker rm lifetra-sb-primary
 
-            - name: Issue quorum fence grant
-              run: |
-                set -euo pipefail
-                LIFETRA_QUORUM_PHASE=fence-grant \\
-                  cargo run --quiet --example quorum_fencing_gate | tee "$RUNNER_TEMP/fence-grant.txt"
-                grep -Fq \\
-                  "FENCE_GRANT generation=1 target=db-a candidate=db-b approvals=2/3 grant_ref=grant:g1:db-a" \\
-                  "$RUNNER_TEMP/fence-grant.txt"
+          if docker start lifetra-sb-primary 2>/dev/null; then
+            echo "old primary unexpectedly remained restartable after power fence" >&2
+            exit 1
+          fi
 
-            - name: Power-fence old primary under quorum grant
-              run: |
-                set -euo pipefail
-                grep -Fq \\
-                  "FENCE_GRANT generation=1 target=db-a candidate=db-b approvals=2/3 grant_ref=grant:g1:db-a" \\
-                  "$RUNNER_TEMP/fence-grant.txt"
+          python3 - <<'PY2'
+          import socket
+          sock = socket.socket()
+          sock.settimeout(0.5)
+          try:
+              code = sock.connect_ex(("127.0.0.1", 55432))
+          finally:
+              sock.close()
+          if code == 0:
+              raise SystemExit("old-primary PostgreSQL port remained reachable")
+          PY2
 
-                docker kill lifetra-sb-primary
-                docker rm lifetra-sb-primary
+          printf '%s\\n' \\
+            'FENCE_CONFIRMED generation=1 target=db-a proof=proof:fence:db-a:off' \\
+            > "$RUNNER_TEMP/fence-receipt.txt"
 
-                if docker start lifetra-sb-primary 2>/dev/null; then
-                  echo "old primary unexpectedly remained restartable after power fence" >&2
-                  exit 1
-                fi
+      - name: Issue promotion permit after confirmed fencing
+        run: |
+          set -euo pipefail
+          grep -Fq \\
+            "FENCE_CONFIRMED generation=1 target=db-a proof=proof:fence:db-a:off" \\
+            "$RUNNER_TEMP/fence-receipt.txt"
+          LIFETRA_QUORUM_PHASE=promotion-permit \\
+            cargo run --quiet --example quorum_fencing_gate | tee "$RUNNER_TEMP/promotion-permit.txt"
+          grep -Fq \\
+            "PROMOTION_PERMIT generation=1 failed=db-a candidate=db-b approvals=2/3 fence_proof=proof:fence:db-a:off permit_ref=permit:g1:db-b" \\
+            "$RUNNER_TEMP/promotion-permit.txt"
+          grep -Fq \\
+            "STALE_PERMIT_BLOCKED permit_generation=1 current_generation=2" \\
+            "$RUNNER_TEMP/promotion-permit.txt"
 
-                python3 - <<'PY'
-                import socket
-                sock = socket.socket()
-                sock.settimeout(0.5)
-                try:
-                    code = sock.connect_ex(("127.0.0.1", 55432))
-                finally:
-                    sock.close()
-                if code == 0:
-                    raise SystemExit("old-primary PostgreSQL port remained reachable")
-                PY
+      - name: Promote quorum-authorized standby
+        run: |
+          set -euo pipefail
+          grep -Fq \\
+            "PROMOTION_PERMIT generation=1 failed=db-a candidate=db-b approvals=2/3 fence_proof=proof:fence:db-a:off permit_ref=permit:g1:db-b" \\
+            "$RUNNER_TEMP/promotion-permit.txt"
 
-                printf '%s\\n' \\
-                  'FENCE_CONFIRMED generation=1 target=db-a proof=proof:fence:db-a:off' \\
-                  > "$RUNNER_TEMP/fence-receipt.txt"
+          docker exec --user postgres lifetra-sb-standby \\
+            pg_ctl -D /var/lib/postgresql/data promote -w
+          for attempt in $(seq 1 30); do
+            recovery="$(docker exec lifetra-sb-standby psql -U lifetra -d lifetra -Atc 'SELECT pg_is_in_recovery();')"
+            if [ "$recovery" = "f" ]; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "standby was not promoted" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "quorum permit admitted promotion after confirmed old-primary fencing"
 
-            - name: Issue promotion permit after confirmed fencing
-              run: |
-                set -euo pipefail
-                grep -Fq \\
-                  "FENCE_CONFIRMED generation=1 target=db-a proof=proof:fence:db-a:off" \\
-                  "$RUNNER_TEMP/fence-receipt.txt"
-                LIFETRA_QUORUM_PHASE=promotion-permit \\
-                  cargo run --quiet --example quorum_fencing_gate | tee "$RUNNER_TEMP/promotion-permit.txt"
-                grep -Fq \\
-                  "PROMOTION_PERMIT generation=1 failed=db-a candidate=db-b approvals=2/3 fence_proof=proof:fence:db-a:off permit_ref=permit:g1:db-b" \\
-                  "$RUNNER_TEMP/promotion-permit.txt"
-                grep -Fq \\
-                  "STALE_PERMIT_BLOCKED permit_generation=1 current_generation=2" \\
-                  "$RUNNER_TEMP/promotion-permit.txt"
-
-            - name: Promote quorum-authorized standby
-              run: |
-                set -euo pipefail
-                grep -Fq \\
-                  "PROMOTION_PERMIT generation=1 failed=db-a candidate=db-b approvals=2/3 fence_proof=proof:fence:db-a:off permit_ref=permit:g1:db-b" \\
-                  "$RUNNER_TEMP/promotion-permit.txt"
-
-                docker exec --user postgres lifetra-sb-standby \\
-                  pg_ctl -D /var/lib/postgresql/data promote -w
-                for attempt in $(seq 1 30); do
-                  recovery="$(docker exec lifetra-sb-standby psql -U lifetra -d lifetra -Atc 'SELECT pg_is_in_recovery();')"
-                  if [ "$recovery" = "f" ]; then
-                    break
-                  fi
-                  if [ "$attempt" -eq 30 ]; then
-                    echo "standby was not promoted" >&2
-                    exit 1
-                  fi
-                  sleep 1
-                done
-                echo "quorum permit admitted promotion after confirmed old-primary fencing"
-          '''
-          if 'Power-fence old primary and promote standby' in wf:
-              if old not in wf:
-                  raise SystemExit('split-brain promotion block did not match expected text')
-              wf = wf.replace(old, new, 1)
+'''
+              wf = wf[:start] + replacement + wf[end:]
           workflow.write_text(wf)
 
           changelog = Path('CHANGELOG.md')
