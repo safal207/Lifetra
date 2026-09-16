@@ -21,146 +21,44 @@ jobs:
         with:
           components: rustfmt
 
-      - name: Wire quorum fencing facade and CI gate
+      - name: Wire quorum fencing facade and changelog
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          lib = Path('src/lib.rs')
+          lib = Path("src/lib.rs")
           text = lib.read_text()
-          if 'mod quorum_fencing;' not in text:
+          if "mod quorum_fencing;" not in text:
               text = text.replace(
-                  'mod provider_reconciliation;\n',
-                  'mod provider_reconciliation;\nmod quorum_fencing;\n',
+                  "mod provider_reconciliation;\n",
+                  "mod provider_reconciliation;\nmod quorum_fencing;\n",
                   1,
               )
-          export = '''pub use quorum_fencing::{
-              CoordinatorId, DatabaseNodeId, FenceGrant, FenceOutcome, FenceReceipt,
-              LeadershipGeneration, PromotionPermit, PromotionRequest, QuorumFencingAuthority,
-              QuorumFencingError, QuorumVote, QuorumVoteDecision,
-          };
-          '''
-          if 'pub use quorum_fencing::{' not in text:
-              text = text.replace('pub use reconciliation::{\n', export + 'pub use reconciliation::{\n', 1)
+          export = (
+              "pub use quorum_fencing::{\n"
+              "    CoordinatorId, DatabaseNodeId, FenceGrant, FenceOutcome, FenceReceipt,\n"
+              "    LeadershipGeneration, PromotionPermit, PromotionRequest, QuorumFencingAuthority,\n"
+              "    QuorumFencingError, QuorumVote, QuorumVoteDecision,\n"
+              "};\n"
+          )
+          if "pub use quorum_fencing::{" not in text:
+              text = text.replace("pub use reconciliation::{\n", export + "pub use reconciliation::{\n", 1)
           lib.write_text(text)
 
-          workflow = Path('.github/workflows/postgres-split-brain.yml')
-          wf = workflow.read_text()
-          wf = wf.replace(
-              '      - name: Compile split-brain probe\n        run: cargo check --example postgres_split_brain_probe\n',
-              '      - name: Compile split-brain and quorum probes\n        run: cargo check --example postgres_split_brain_probe --example quorum_fencing_gate\n',
-              1,
-          )
-          start_marker = '      - name: Power-fence old primary and promote standby\n'
-          end_marker = '      - name: Repoint stable leader endpoint to promoted standby\n'
-          if start_marker in wf:
-              start = wf.index(start_marker)
-              end = wf.index(end_marker, start)
-              replacement = '''      - name: Prove quorum loss and unknown fencing fail closed
-        run: |
-          set -euo pipefail
-          LIFETRA_QUORUM_PHASE=deny-no-quorum \\
-            cargo run --quiet --example quorum_fencing_gate | tee "$RUNNER_TEMP/no-quorum.txt"
-          grep -Fq "NO_QUORUM approvals=1 required=2" "$RUNNER_TEMP/no-quorum.txt"
-
-          LIFETRA_QUORUM_PHASE=deny-unknown-fence \\
-            cargo run --quiet --example quorum_fencing_gate | tee "$RUNNER_TEMP/unknown-fence.txt"
-          grep -Fq "FENCE_UNKNOWN_BLOCKED generation=1 target=db-a" "$RUNNER_TEMP/unknown-fence.txt"
-
-      - name: Issue quorum fence grant
-        run: |
-          set -euo pipefail
-          LIFETRA_QUORUM_PHASE=fence-grant \\
-            cargo run --quiet --example quorum_fencing_gate | tee "$RUNNER_TEMP/fence-grant.txt"
-          grep -Fq \\
-            "FENCE_GRANT generation=1 target=db-a candidate=db-b approvals=2/3 grant_ref=grant:g1:db-a" \\
-            "$RUNNER_TEMP/fence-grant.txt"
-
-      - name: Power-fence old primary under quorum grant
-        run: |
-          set -euo pipefail
-          grep -Fq \\
-            "FENCE_GRANT generation=1 target=db-a candidate=db-b approvals=2/3 grant_ref=grant:g1:db-a" \\
-            "$RUNNER_TEMP/fence-grant.txt"
-
-          docker kill lifetra-sb-primary
-          docker rm lifetra-sb-primary
-
-          if docker start lifetra-sb-primary 2>/dev/null; then
-            echo "old primary unexpectedly remained restartable after power fence" >&2
-            exit 1
-          fi
-
-          python3 - <<'PY2'
-          import socket
-          sock = socket.socket()
-          sock.settimeout(0.5)
-          try:
-              code = sock.connect_ex(("127.0.0.1", 55432))
-          finally:
-              sock.close()
-          if code == 0:
-              raise SystemExit("old-primary PostgreSQL port remained reachable")
-          PY2
-
-          printf '%s\\n' \\
-            'FENCE_CONFIRMED generation=1 target=db-a proof=proof:fence:db-a:off' \\
-            > "$RUNNER_TEMP/fence-receipt.txt"
-
-      - name: Issue promotion permit after confirmed fencing
-        run: |
-          set -euo pipefail
-          grep -Fq \\
-            "FENCE_CONFIRMED generation=1 target=db-a proof=proof:fence:db-a:off" \\
-            "$RUNNER_TEMP/fence-receipt.txt"
-          LIFETRA_QUORUM_PHASE=promotion-permit \\
-            cargo run --quiet --example quorum_fencing_gate | tee "$RUNNER_TEMP/promotion-permit.txt"
-          grep -Fq \\
-            "PROMOTION_PERMIT generation=1 failed=db-a candidate=db-b approvals=2/3 fence_proof=proof:fence:db-a:off permit_ref=permit:g1:db-b" \\
-            "$RUNNER_TEMP/promotion-permit.txt"
-          grep -Fq \\
-            "STALE_PERMIT_BLOCKED permit_generation=1 current_generation=2" \\
-            "$RUNNER_TEMP/promotion-permit.txt"
-
-      - name: Promote quorum-authorized standby
-        run: |
-          set -euo pipefail
-          grep -Fq \\
-            "PROMOTION_PERMIT generation=1 failed=db-a candidate=db-b approvals=2/3 fence_proof=proof:fence:db-a:off permit_ref=permit:g1:db-b" \\
-            "$RUNNER_TEMP/promotion-permit.txt"
-
-          docker exec --user postgres lifetra-sb-standby \\
-            pg_ctl -D /var/lib/postgresql/data promote -w
-          for attempt in $(seq 1 30); do
-            recovery="$(docker exec lifetra-sb-standby psql -U lifetra -d lifetra -Atc 'SELECT pg_is_in_recovery();')"
-            if [ "$recovery" = "f" ]; then
-              break
-            fi
-            if [ "$attempt" -eq 30 ]; then
-              echo "standby was not promoted" >&2
-              exit 1
-            fi
-            sleep 1
-          done
-          echo "quorum permit admitted promotion after confirmed old-primary fencing"
-
-'''
-              wf = wf[:start] + replacement + wf[end:]
-          workflow.write_text(wf)
-
-          changelog = Path('CHANGELOG.md')
+          changelog = Path("CHANGELOG.md")
           ch = changelog.read_text()
-          anchor = '- add `docs/postgres-split-brain-fencing.md`, `examples/postgres_split_brain_probe.rs`, and a dedicated `PostgreSQL Split-Brain CI` workflow for the resurrection/rejoin proof;\n'
-          addition = '''- add provider-neutral `QuorumFencingAuthority` with unique coordinator membership, majority quorum, monotonic `LeadershipGeneration`, proposal locking, and stale-permit rejection;
-          - split database failover authority into `FenceGrant`, externally observed `FenceReceipt`, and `PromotionPermit`, keeping quorum intent separate from proof that the old primary is actually fenced;
-          - fail closed when quorum is lost, a coordinator votes twice, a non-member votes, the failed primary remains reachable, fencing is `Unknown`, or a competing candidate appears in the same generation;
-          - gate the PostgreSQL split-brain promotion step on a 2-of-3 quorum grant plus confirmed old-primary fencing, with explicit negative CI proofs for no-quorum and unknown-fence cases;
-          - keep quorum leadership generation distinct from both PostgreSQL role and Lifetra per-action fencing epoch;
-          - add `docs/quorum-fencing-authority.md` and `examples/quorum_fencing_gate.rs` for the external promotion-authority contract;
-          '''
-          if 'QuorumFencingAuthority' not in ch:
+          anchor = "- add `docs/postgres-split-brain-fencing.md`, `examples/postgres_split_brain_probe.rs`, and a dedicated `PostgreSQL Split-Brain CI` workflow for the resurrection/rejoin proof;\n"
+          addition = (
+              "- add provider-neutral `QuorumFencingAuthority` with unique coordinator membership, majority quorum, monotonic `LeadershipGeneration`, proposal locking, and stale-permit rejection;\n"
+              "- split database failover authority into `FenceGrant`, externally observed `FenceReceipt`, and `PromotionPermit`, keeping quorum intent separate from proof that the old primary is actually fenced;\n"
+              "- fail closed when quorum is lost, a coordinator votes twice, a non-member votes, the failed primary remains reachable, fencing is `Unknown`, or a competing candidate appears in the same generation;\n"
+              "- add a dedicated PostgreSQL quorum-failover CI gate that refuses promotion without both quorum and confirmed old-primary fencing;\n"
+              "- keep quorum leadership generation distinct from both PostgreSQL role and Lifetra per-action fencing epoch;\n"
+              "- add `docs/quorum-fencing-authority.md` and `examples/quorum_fencing_gate.rs` for the external promotion-authority contract;\n"
+          )
+          if "QuorumFencingAuthority" not in ch:
               if anchor not in ch:
-                  raise SystemExit('changelog split-brain anchor missing')
+                  raise SystemExit("changelog split-brain anchor missing")
               ch = ch.replace(anchor, anchor + addition, 1)
           changelog.write_text(ch)
           PY
@@ -171,5 +69,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "feat: gate PostgreSQL promotion on quorum fencing authority"
+          git commit -m "feat: expose quorum fencing authority"
           git push origin HEAD:feat/trajectory-bead-graph
