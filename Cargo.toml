@@ -50,3 +50,5 @@ lifetra-resonance.workspace = true
 lifetra-synergy.workspace = true
 lifetra-bead.workspace = true
 postgres = "0.19"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
