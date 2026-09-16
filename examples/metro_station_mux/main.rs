@@ -176,7 +176,6 @@ fn run() -> Result<(), String> {
         let responses = response_tx.clone();
         workers.push(thread::spawn(move || worker_loop(jobs, responses)));
     }
-    drop(response_tx);
 
     for line in io::stdin().lock().lines() {
         let line = line.map_err(|error| format!("read Metro request line: {error}"))?;
@@ -191,16 +190,9 @@ fn run() -> Result<(), String> {
                     request: envelope.request,
                 })
                 .map_err(|_| "Metro job queue closed unexpectedly".to_string())?,
-            Err(error) => {
-                let encoded = encode_error(error);
-                let stdout = io::stdout();
-                let mut output = stdout.lock();
-                writeln!(output, "{encoded}")
-                    .map_err(|write_error| format!("write Metro error line: {write_error}"))?;
-                output
-                    .flush()
-                    .map_err(|flush_error| format!("flush Metro error line: {flush_error}"))?;
-            }
+            Err(error) => response_tx
+                .send(encode_error(error))
+                .map_err(|_| "Metro response writer closed unexpectedly".to_string())?,
         }
     }
 
@@ -211,6 +203,7 @@ fn run() -> Result<(), String> {
             .join()
             .map_err(|_| "Metro worker thread panicked".to_string())??;
     }
+    drop(response_tx);
     writer
         .join()
         .map_err(|_| "Metro writer thread panicked".to_string())??;
