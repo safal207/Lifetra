@@ -44,7 +44,9 @@ impl OrientationInput {
         {
             Ok(())
         } else {
-            Err(format!("{name} values must be finite and normalized to 0..=1"))
+            Err(format!(
+                "{name} values must be finite and normalized to 0..=1"
+            ))
         }
     }
 
