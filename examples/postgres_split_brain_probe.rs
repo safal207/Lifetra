@@ -20,9 +20,15 @@ fn main() {
     match phase.as_str() {
         "seed" => seed(&store, &runtime, &action_id),
         "standby" => print_verified("standby", &runtime, &action_id, 2, 0),
-        "promoted" => promote_continuity(&runtime, &action_id),
+        "promoted" => renew_continuity("promoted", &runtime, &action_id, 2, 0, 3, 1),
         "rejoined" => print_verified("rejoined", &runtime, &action_id, 3, 1),
-        "leader" => print_verified("leader", &runtime, &action_id, 3, 1),
+        "leader-after-rejoin" => {
+            renew_continuity("leader-after-rejoin", &runtime, &action_id, 3, 1, 4, 2)
+        }
+        "rejoined-after-sync" => {
+            print_verified("rejoined-after-sync", &runtime, &action_id, 4, 2)
+        }
+        "leader" => print_verified("leader", &runtime, &action_id, 4, 2),
         "cleanup" => {
             store.delete_action(&action_id).ok();
             println!("cleaned split-brain probe");
@@ -79,11 +85,19 @@ fn seed(
     );
 }
 
-fn promote_continuity(runtime: &PostgresUnifiedFencedRuntime, action_id: &ActionId) {
+fn renew_continuity(
+    label: &str,
+    runtime: &PostgresUnifiedFencedRuntime,
+    action_id: &ActionId,
+    before_revision: u64,
+    before_lease_revision: u64,
+    after_revision: u64,
+    after_lease_revision: u64,
+) {
     let before = verified_record(runtime, action_id);
-    assert_eq!(before.revision, 2);
+    assert_eq!(before.revision, before_revision);
     let lease = before.lease.as_ref().expect("replicated lease");
-    assert_eq!(lease.revision, 0);
+    assert_eq!(lease.revision, before_lease_revision);
     let token = UnifiedFencingToken {
         action_id: action_id.clone(),
         owner: lease.owner.clone(),
@@ -91,15 +105,15 @@ fn promote_continuity(runtime: &PostgresUnifiedFencedRuntime, action_id: &Action
     };
     let renewed = runtime
         .renew(&token, 3_600)
-        .expect("promoted leader must continue fenced authority state");
+        .expect("leader must continue fenced authority state");
     let after = verified_record(runtime, action_id);
 
     assert_eq!(renewed.epoch, 1);
-    assert_eq!(renewed.revision, 1);
-    assert_eq!(after.revision, 3);
+    assert_eq!(renewed.revision, after_lease_revision);
+    assert_eq!(after.revision, after_revision);
     assert_eq!(after.lease.as_ref().expect("renewed lease"), &renewed);
     println!(
-        "promoted endpoint revision={} epoch={} lease_revision={}",
+        "{label} revision={} epoch={} lease_revision={}",
         after.revision, renewed.epoch, renewed.revision
     );
 }
