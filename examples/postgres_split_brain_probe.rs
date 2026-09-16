@@ -25,9 +25,7 @@ fn main() {
         "leader-after-rejoin" => {
             renew_continuity("leader-after-rejoin", &runtime, &action_id, 3, 1, 4, 2)
         }
-        "rejoined-after-sync" => {
-            print_verified("rejoined-after-sync", &runtime, &action_id, 4, 2)
-        }
+        "rejoined-after-sync" => print_verified("rejoined-after-sync", &runtime, &action_id, 4, 2),
         "leader" => print_verified("leader", &runtime, &action_id, 4, 2),
         "cleanup" => {
             store.delete_action(&action_id).ok();
