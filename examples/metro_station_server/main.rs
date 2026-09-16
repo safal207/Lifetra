@@ -28,8 +28,7 @@ fn encode_error(error: String) -> String {
         error,
     })
     .unwrap_or_else(|_| {
-        "{\"protocol\":\"lifetra.station.error.v0.1\",\"error\":\"encode failure\"}"
-            .to_string()
+        "{\"protocol\":\"lifetra.station.error.v0.1\",\"error\":\"encode failure\"}".to_string()
     })
 }
 
